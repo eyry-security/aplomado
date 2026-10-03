@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aplomado"
+version = "0.1.0"
+description = "AI security scanner and reviewer built on Pinnace. The falcon of the Eyry suite."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Eyry", email = "hello@eyry.io" }]
+keywords = ["security", "scanner", "recon", "agent", "llm", "bugbounty", "pentest"]
+dependencies = [
+    # Not on PyPI yet; for local dev run: pip install -e ../pinnace
+    "pinnace>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://eyry.io"
+Repository = "https://github.com/eyry-security/aplomado"
+
+[project.scripts]
+aplomado = "aplomado.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aplomado*"]
