@@ -25,6 +25,7 @@ findings and a summary saying what happened.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 
@@ -71,18 +72,34 @@ def _as_str(value: object) -> str:
     return value if isinstance(value, str) else str(value)
 
 
+def finding_id(target: str, title: str, evidence: str) -> str:
+    """Deterministic finding ID: ``sha256(target || '\\0' || title || '\\0' || evidence)``.
+
+    Same target + title + evidence always produces the same ID, so re-scans
+    dedupe cleanly in Rutt and in Quarterdeck's event history.  Different
+    targets with the same finding title get different IDs.
+    """
+    payload = f"{target}\0{title}\0{evidence}".encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 def normalize_finding(item: object) -> dict | None:
     """Coerce one finding into the schema; None when the item is unusable."""
     if isinstance(item, str):
         item = {"title": item}
     if not isinstance(item, dict):
         return None
-    return {
+    result = {
         "severity": coerce_severity(item.get("severity")),
         "title": _as_str(item.get("title")),
         "detail": _as_str(item.get("detail")),
         "evidence": _as_str(item.get("evidence")),
     }
+    # Preserve unknown fields from the model (confidence, remediation, etc.)
+    for key, value in item.items():
+        if key not in result:
+            result[key] = value
+    return result
 
 
 def normalize_findings(
@@ -123,8 +140,14 @@ def normalize_findings(
         f for f in (normalize_finding(i) for i in raw_findings) if f is not None
     ]
 
+    resolved_target = payload_target or _as_str(target)
+
+    # Stamp each finding with a deterministic ID.
+    for f in findings:
+        f["id"] = finding_id(resolved_target, f["title"], f["evidence"])
+
     return {
-        "target": payload_target or _as_str(target),
+        "target": resolved_target,
         "summary": summary,
         "scanned_at": scanned_at
         or _valid_iso(payload.get("scanned_at") if isinstance(payload, dict) else None)

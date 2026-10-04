@@ -16,6 +16,37 @@ class AplomadoError(RuntimeError):
     """Aplomado-side failures: bad input, missing files, scan setup."""
 
 
+def parse_stdin_record(line: str) -> tuple[str, str | None]:
+    """Parse one line from stdin into (target, context_or_None).
+
+    Accepts Vedette JSONL (extracts url/host/input + builds context block)
+    or a bare hostname/URL string.
+
+    Raises AplomadoError on unparseable input.
+    """
+    line = line.strip()
+    if not line:
+        raise AplomadoError("empty line")
+    if not line.startswith("{"):
+        # Bare hostname or URL
+        return line, None
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError as e:
+        raise AplomadoError(f"invalid JSON: {e}") from e
+    if not isinstance(record, dict):
+        raise AplomadoError("expected a JSON object")
+    label = (
+        record.get("url") or record.get("host") or record.get("input")
+    )
+    if not label:
+        raise AplomadoError("no url, host, or input field")
+    context = "Target context (one Vedette prober record):\n" + json.dumps(
+        record, indent=2
+    )
+    return str(label), context
+
+
 def load_target_file(path: str) -> tuple[str, str]:
     """Read one Vedette JSONL record; return (target label, context block).
 

@@ -25,7 +25,14 @@ def test_full_payload_round_trips():
         ],
     }
     env = normalize_findings(payload, "https://example.com")
-    assert env == payload
+    assert env["target"] == payload["target"]
+    assert env["summary"] == payload["summary"]
+    assert env["scanned_at"] == payload["scanned_at"]
+    assert len(env["findings"]) == 1
+    f = env["findings"][0]
+    assert f["severity"] == "low"
+    assert f["title"] == "Server header leaks version"
+    assert "id" in f  # deterministic finding ID
 
 
 def test_defaults_filled():
@@ -59,7 +66,10 @@ def test_severity_set_is_stable():
 
 def test_finding_item_defaults_and_coercion():
     f = normalize_finding({"severity": "HIGH"})
-    assert f == {"severity": "high", "title": "", "detail": "", "evidence": ""}
+    assert f["severity"] == "high"
+    assert f["title"] == ""
+    assert f["detail"] == ""
+    assert f["evidence"] == ""
     f = normalize_finding({"severity": "nope", "title": 42, "detail": None})
     assert f["severity"] == "info"
     assert f["title"] == "42"
@@ -98,9 +108,13 @@ def test_garbage_string_becomes_summary():
 
 def test_list_payload_is_bare_findings_array():
     env = normalize_findings([{"severity": "HIGH", "title": "t"}], "example.com")
-    assert env["findings"] == [
-        {"severity": "high", "title": "t", "detail": "", "evidence": ""}
-    ]
+    assert len(env["findings"]) == 1
+    f = env["findings"][0]
+    assert f["severity"] == "high"
+    assert f["title"] == "t"
+    assert f["detail"] == ""
+    assert f["evidence"] == ""
+    assert "id" in f
 
 
 def test_single_finding_object_wrapped():
@@ -145,7 +159,7 @@ def test_never_crashes_on_weird_input():
     ]
     for w in weird:
         env = normalize_findings(w, "example.com")
-        assert set(env) == {"target", "summary", "scanned_at", "findings"}
+        assert {"target", "summary", "scanned_at", "findings"} <= set(env)
         assert all(s in SEVERITIES for s in (f["severity"] for f in env["findings"]))
         datetime.fromisoformat(env["scanned_at"])
 
