@@ -13,6 +13,19 @@ Planned capabilities for the AI scanner. Owner: Claude (Kiro) — Ben' sets prio
 - [ ] **Python 3 scratchpad tool** — let the agent submit Python code and get
   stdout/stderr back, for custom analysis and data munging mid-scan.
 
+## Terminal UX
+
+- [ ] **Prettier terminal output** — richer, more readable scan output: live
+  progress, color, structured finding display.
+- [ ] **Thinking output** — surface the model's thinking/reasoning during
+  scans (verbose/collapsible modes), so you can watch what the agent is
+  doing and why.
+
+## Prompting
+
+- [ ] **Better prompting control** — make the scan prompts visible,
+  overridable, and versioned (flags, prompt packs).
+
 ## Hardening
 
 - [ ] **Harden file-writing toolset** — constrain where and what the agent can
