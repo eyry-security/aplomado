@@ -37,6 +37,10 @@ class MockSandbox:
         return self.result
 
 
+def test_scratchpad_path_is_under_scratch_directory():
+    assert SCRATCHPAD_PATH == "scratch/_scratchpad.py"
+
+
 def test_scratchpad_writes_code_and_returns_stdout():
     sandbox = MockSandbox(ExecResult("hello\n", "", 0))
 
