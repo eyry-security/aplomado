@@ -71,6 +71,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--workdir", default="./aplomado-work", help="workdir for the local sandbox"
     )
     sp.add_argument("--max-turns", type=int, default=30, help="agent turn limit")
+    sp.add_argument(
+        "--thinking",
+        nargs="?",
+        choices=("compact", "verbose"),
+        const="compact",
+        default=None,
+        metavar="MODE",
+        help="show model reasoning on stderr: compact (default) or verbose",
+    )
     sp.add_argument("--session", help="persist/resume the transcript under this name")
     sp.add_argument("--json", action="store_true", help="print the findings as JSON")
     sp.add_argument(
@@ -185,6 +194,7 @@ def _run_one(target: str, context: str | None, args, sandbox, store, sink,
         session_id=session_id if session_id is not None else args.session,
         store=store,
         event_sink=sink,
+        thinking=args.thinking,
         log=_log,
     )
 

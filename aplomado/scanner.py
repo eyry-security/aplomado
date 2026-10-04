@@ -8,8 +8,9 @@ from pinnace import PinnaceAgent
 
 from .findings import normalize_findings
 from .prompts import SYSTEM_PROMPT, build_prompt
-from .store import FindingStore, NullStore, resolve_store
-from .events import EventSink, NullSink, build_event
+from .store import FindingStore
+from .events import EventSink, build_event
+from .thinking import ThinkingModel, prepare_thinking_model
 
 
 class AplomadoError(RuntimeError):
@@ -99,6 +100,7 @@ def run_scan(
     session_store=None,
     store: FindingStore | None = None,
     event_sink: EventSink | None = None,
+    thinking: str | None = None,
     log=None,
 ) -> dict:
     """Run one scan and return the normalized findings envelope.
@@ -106,9 +108,13 @@ def run_scan(
     model: a langchain chat model, a "provider:model" ref, or None (then
         PinnaceAgent falls back to $PINNACE_MODEL / its default).
     sandbox: a pinnace Sandbox, or None for the default Docker sandbox.
-    store: a FindingStore to persist results to (NullStore if None).
+    store: a FindingStore to persist results to (no persistence if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
+    thinking: opt-in reasoning narration: ``"compact"`` or ``"verbose"``.
+        Reasoning is sent only to ``log`` and is bounded in both modes.
     """
+    effective_log = log or (lambda *args: None)
+    model = prepare_thinking_model(model, thinking)
     agent = PinnaceAgent(
         model=model,
         sandbox=sandbox,
@@ -116,8 +122,12 @@ def run_scan(
         max_turns=max_turns,
         session_id=session_id,
         session_store=session_store,
-        log=log or (lambda *a: None),
+        log=effective_log,
     )
+    if thinking is not None:
+        # Keep agent.model concrete for Pinnace capability checks; only observe
+        # the final tool-bound invocation layer.
+        agent.bound = ThinkingModel(agent.bound, thinking, effective_log)
     result = agent.run(build_prompt(target, target_context))
 
     ok = True

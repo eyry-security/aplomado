@@ -43,8 +43,11 @@ aplomado scan --target https://example.com --json
 vedette -l hosts.txt -o results.jsonl
 aplomado scan --target https://example.com --target-file results.jsonl --json
 
-# human-readable report instead of JSON
-aplomado scan --target https://example.com
+# human-readable report with a collapsed reasoning preview on stderr
+aplomado scan --target https://example.com --thinking
+
+# expand each reasoning block (output remains bounded)
+aplomado scan --target https://example.com --thinking verbose
 
 # no Docker? run the sandbox on your machine (dev only — reads the warning)
 aplomado scan --target https://example.com --sandbox local --unsafe-ok
@@ -79,22 +82,27 @@ findings list with a summary instead of a crash. Use it any time you consume mod
 ## CLI reference
 
 ```
-aplomado scan --target <host-or-URL> [--target-file vedette.jsonl]
+aplomado scan [--target <host-or-URL>] [--target-file vedette.jsonl]
     [--model provider:model] [--sandbox docker|local] [--unsafe-ok]
-    [--image IMG] [--no-net] [--max-turns N] [--session NAME] [--json]
+    [--image IMG] [--no-net] [--max-turns N]
+    [--thinking [compact|verbose]] [--session NAME] [--json]
 ```
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--target` | (required) | Host or URL. Overridden by `--target-file`'s record if given |
+| `--target` | stdin | Host or URL; when omitted, stream targets from stdin |
 | `--target-file` | – | Vedette JSONL; the first record supplies the target label + context |
 | `--model` | `$PINNACE_MODEL` | `provider:model`, e.g. `anthropic:claude-sonnet-4-5` |
 | `--sandbox` | `docker` | `local` needs `--unsafe-ok` (dev/tests only) |
 | `--image` | `python:3.12-slim` | Docker image for the sandbox |
 | `--no-net` | off | Cut sandbox network egress |
 | `--max-turns` | 30 | Agent turn limit |
+| `--thinking [MODE]` | off | Reasoning to stderr; bare flag is a 240-character compact preview, `verbose` expands up to 4,000 characters |
 | `--session` | – | Persist/resume the transcript under this name |
 | `--json` | off | Print the findings envelope as JSON to stdout |
+
+Thinking narration is opt-in because model reasoning can contain target data. It is
+always sent to stderr, so JSON and event streams on stdout remain machine-readable.
 
 Exit codes: `0` scan completed (even with critical findings — parse `--json` output for those),
 `2` bad input/sandbox setup, `1` agent runtime error, `130` interrupted.
@@ -108,6 +116,8 @@ envelope = run_scan(
     "https://example.com",
     model="anthropic:claude-sonnet-4-5",
     max_turns=20,
+    thinking="compact",  # or "verbose"; narration uses the log callback
+    log=print,
 )
 print(envelope["findings"])
 ```
