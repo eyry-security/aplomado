@@ -50,6 +50,32 @@ aplomado scan --target https://example.com
 aplomado scan --target https://example.com --sandbox local --unsafe-ok
 ```
 
+## Prompt control
+
+Aplomado ships immutable, versioned prompt packs. The default is `recon-v1`.
+Inspect the exact instructions before a scan, or emit them as JSON for tooling:
+
+```bash
+aplomado prompts
+aplomado prompts --pack recon-v1
+aplomado prompts --pack recon-v1 --json
+```
+
+Select a pack with `--prompt-pack`. To experiment without editing package
+code, replace either half from a UTF-8 text file:
+
+```bash
+aplomado scan --target https://example.com \
+  --prompt-pack recon-v1 \
+  --system-prompt-file ./system.txt \
+  --run-prompt-file ./run.txt
+```
+
+A run-prompt override must contain `{target}`. It may also contain
+`{target_context_block}`, which expands to the prober context plus a blank line
+when context is available, or to an empty string otherwise. Other braces are
+left unchanged, so JSON examples can appear in custom templates.
+
 ## Findings schema
 
 Every scan returns this envelope — it seeds the suite's shared findings schema, so Vedette's
@@ -82,6 +108,7 @@ findings list with a summary instead of a crash. Use it any time you consume mod
 aplomado scan --target <host-or-URL> [--target-file vedette.jsonl]
     [--model provider:model] [--sandbox docker|local] [--unsafe-ok]
     [--image IMG] [--no-net] [--max-turns N] [--session NAME] [--json]
+    [--prompt-pack ID] [--system-prompt-file PATH] [--run-prompt-file PATH]
 ```
 
 | Flag | Default | Notes |
@@ -95,6 +122,9 @@ aplomado scan --target <host-or-URL> [--target-file vedette.jsonl]
 | `--max-turns` | 30 | Agent turn limit |
 | `--session` | – | Persist/resume the transcript under this name |
 | `--json` | off | Print the findings envelope as JSON to stdout |
+| `--prompt-pack` | `recon-v1` | Select immutable built-in prompt instructions by versioned ID |
+| `--system-prompt-file` | – | Replace the selected pack's system prompt from a UTF-8 file |
+| `--run-prompt-file` | – | Replace its run template; the file must contain `{target}` |
 
 Exit codes: `0` scan completed (even with critical findings — parse `--json` output for those),
 `2` bad input/sandbox setup, `1` agent runtime error, `130` interrupted.
