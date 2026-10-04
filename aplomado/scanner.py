@@ -27,15 +27,16 @@ def parse_stdin_record(line: str) -> tuple[str, str | None]:
     line = line.strip()
     if not line:
         raise AplomadoError("empty line")
-    if not line.startswith("{"):
+    if line.startswith(("{", "[")):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise AplomadoError(f"invalid JSON: {e}") from e
+        if not isinstance(record, dict):
+            raise AplomadoError("expected a JSON object")
+    else:
         # Bare hostname or URL
         return line, None
-    try:
-        record = json.loads(line)
-    except json.JSONDecodeError as e:
-        raise AplomadoError(f"invalid JSON: {e}") from e
-    if not isinstance(record, dict):
-        raise AplomadoError("expected a JSON object")
     label = (
         record.get("url") or record.get("host") or record.get("input")
     )

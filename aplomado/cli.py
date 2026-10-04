@@ -9,9 +9,9 @@ Stdin ingestion (the pipeline use case):
     foretop | vedette | aplomado scan --event-sink -
 
 When ``--target`` and ``--target-file`` are both absent and stdin is not a TTY,
-Aplomado reads Vedette JSONL from stdin.  By default only the **first record**
-is scanned (safe for exploratory use).  Pass ``--all`` to scan every record —
-one agent run per input line.
+Aplomado scans every valid Vedette JSONL record as it arrives — one isolated
+agent run per input line. Malformed records are reported on stderr and do not
+stop later records.
 """
 
 from __future__ import annotations
@@ -21,12 +21,13 @@ import json
 import os
 import sys
 
-from pinnace import DockerSandbox, LocalSandbox, PinnaceError, SandboxError
+from pinnace import DockerSandbox, LocalSandbox
 
 from . import __version__
 from .scanner import AplomadoError, load_target_file, parse_stdin_record, run_scan
 from .store import resolve_store
-from .events import resolve_sink
+from .events import build_event, resolve_sink
+from .findings import normalize_findings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--all",
         action="store_true",
         dest="scan_all",
-        help="scan every record from stdin (default: first record only)",
+        help=argparse.SUPPRESS,  # compatibility no-op: stdin always scans all records
     )
     sp.add_argument(
         "--model",
@@ -120,52 +121,60 @@ def _print_findings(env: dict) -> None:
                 print(f"  | {line}")
 
 
-def _resolve_targets(args) -> list[tuple[str, str | None]]:
-    """Resolve the scan target(s) from CLI args or stdin.
-
-    Returns a list of (target, context_or_None) tuples.
-    """
-    # Explicit --target
+def _iter_targets(args):
+    """Yield ``(target, context, line_number, error)`` without buffering stdin."""
     if args.target:
         context = None
         if args.target_file:
             try:
                 _, context = load_target_file(args.target_file)
             except AplomadoError:
-                pass  # target wins; file context is best-effort
-        return [(args.target, context)]
+                pass  # explicit target wins; file context is best-effort
+        yield args.target, context, None, None
+        return
 
-    # Explicit --target-file (first record)
     if args.target_file:
         target, context = load_target_file(args.target_file)
-        return [(target, context)]
+        yield target, context, None, None
+        return
 
-    # stdin ingestion
     if sys.stdin.isatty():
         raise AplomadoError(
             "no target given. Use --target, --target-file, or pipe Vedette JSONL to stdin"
         )
 
-    targets: list[tuple[str, str | None]] = []
+    saw_input = False
     for lineno, line in enumerate(sys.stdin, 1):
         line = line.strip()
         if not line:
             continue
+        saw_input = True
         try:
             target, context = parse_stdin_record(line)
-        except AplomadoError as e:
-            _log(f"stdin line {lineno}: {e} (skipped)")
+        except AplomadoError as exc:
+            yield None, None, lineno, str(exc)
+            continue
+        yield target, context, lineno, None
+
+    if not saw_input:
+        raise AplomadoError("no targets found on stdin")
+
+
+def _resolve_targets(args) -> list[tuple[str, str | None]]:
+    """Compatibility helper that materializes valid targets for callers/tests."""
+    targets = []
+    for target, context, lineno, error in _iter_targets(args):
+        if error:
+            _log(f"stdin line {lineno}: {error} (skipped)")
             continue
         targets.append((target, context))
-        if not args.scan_all:
-            break  # first record only
-
     if not targets:
         raise AplomadoError("no valid targets found on stdin")
     return targets
 
 
-def _run_one(target: str, context: str | None, args, sandbox, store, sink) -> dict:
+def _run_one(target: str, context: str | None, args, sandbox, store, sink,
+             session_id: str | None = None) -> dict:
     """Run a single scan and return the envelope."""
     return run_scan(
         target,
@@ -173,7 +182,7 @@ def _run_one(target: str, context: str | None, args, sandbox, store, sink) -> di
         sandbox=sandbox,
         target_context=context,
         max_turns=args.max_turns,
-        session_id=args.session,
+        session_id=session_id if session_id is not None else args.session,
         store=store,
         event_sink=sink,
         log=_log,
@@ -182,45 +191,71 @@ def _run_one(target: str, context: str | None, args, sandbox, store, sink) -> di
 
 def cmd_scan(args) -> int:
     try:
-        targets = _resolve_targets(args)
-    except AplomadoError as e:
-        _log(str(e))
+        targets = _iter_targets(args)
+        store = resolve_store(args.rutt_dsn)
+        sink = resolve_sink(args.event_sink)
+    except (AplomadoError, OSError, RuntimeError) as exc:
+        _log(str(exc))
         return 2
-
-    try:
-        sandbox = _make_sandbox(args)
-    except (AplomadoError, SandboxError) as e:
-        _log(str(e))
-        return 2
-
-    store = resolve_store(args.rutt_dsn)
-    sink = resolve_sink(args.event_sink)
 
     failed = False
+    scanned = 0
     try:
-        for i, (target, context) in enumerate(targets):
-            if len(targets) > 1:
-                _log(f"[{i + 1}/{len(targets)}] scanning {target}")
-            else:
-                _log(f"scanning {target} (model: {args.model or '$PINNACE_MODEL'})")
-            try:
-                envelope = _run_one(target, context, args, sandbox, store, sink)
-            except PinnaceError as e:
-                _log(f"error scanning {target}: {e}")
-                failed = True
-                continue
-
-            if args.json:
-                print(json.dumps(envelope, indent=2), flush=True)
-            else:
-                _print_findings(envelope)
-                if i < len(targets) - 1:
-                    print()  # blank line between results
-    finally:
         try:
-            sandbox.close()
-        except Exception:  # noqa: BLE001
-            pass
+            for target, context, lineno, input_error in targets:
+                if input_error:
+                    _log(f"stdin line {lineno}: {input_error} (skipped)")
+                    failed = True
+                    continue
+
+                scanned += 1
+                location = f"stdin line {lineno}" if lineno is not None else "explicit input"
+                _log(
+                    f"scanning {target} ({location}; model: "
+                    f"{args.model or '$PINNACE_MODEL'})"
+                )
+                sandbox = None
+                try:
+                    sandbox = _make_sandbox(args)
+                    session_id = (
+                        f"{args.session}-{lineno}" if args.session and lineno is not None
+                        else args.session
+                    )
+                    envelope = _run_one(
+                        target, context, args, sandbox, store, sink,
+                        session_id=session_id,
+                    )
+                except Exception as exc:  # isolate one record from the rest of the stream
+                    _log(f"error scanning {target}: {type(exc).__name__}: {exc}")
+                    failed = True
+                    envelope = normalize_findings(
+                        {"summary": "", "findings": []}, target
+                    )
+                    try:
+                        sink.emit(build_event(envelope, ok=False, error=str(exc)))
+                    except Exception as sink_exc:
+                        _log(f"event sink failed for {target}: {sink_exc}")
+                    continue
+                finally:
+                    if sandbox is not None:
+                        try:
+                            sandbox.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+
+                # Stdout event sinks own stdout so the pipeline remains JSONL.
+                if args.event_sink == "-":
+                    continue
+                if args.json:
+                    print(json.dumps(envelope, separators=(",", ":")), flush=True)
+                else:
+                    if scanned > 1:
+                        print()
+                    _print_findings(envelope)
+        except AplomadoError as exc:
+            _log(str(exc))
+            return 2
+    finally:
         try:
             store.close()
         except Exception:  # noqa: BLE001
@@ -230,6 +265,9 @@ def cmd_scan(args) -> int:
         except Exception:  # noqa: BLE001
             pass
 
+    if scanned == 0:
+        _log("no valid targets found on stdin")
+        return 2
     return 1 if failed else 0
 
 

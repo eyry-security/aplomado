@@ -44,9 +44,9 @@ def test_defaults_filled():
     datetime.fromisoformat(env["scanned_at"])
 
 
-def test_target_prefers_payload():
+def test_target_argument_is_authoritative():
     env = normalize_findings({"target": "https://a.example"}, "https://b.example")
-    assert env["target"] == "https://a.example"
+    assert env["target"] == "https://b.example"
 
 
 def test_severity_coercion():

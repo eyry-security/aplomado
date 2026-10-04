@@ -66,6 +66,8 @@ class RuttStore:
                 source="aplomado",
                 description=finding.get("detail", ""),
                 data={
+                    "id": finding.get("id", ""),
+                    "check": finding.get("check") or finding.get("title", ""),
                     "evidence": finding.get("evidence", ""),
                 },
             )

@@ -74,6 +74,7 @@ def test_rutt_store_save_with_findings():
         "scanned_at": "2026-10-04T00:00:00Z",
         "findings": [
             {
+                "id": "finding-1",
                 "severity": "high",
                 "title": "Exposed .git",
                 "detail": ".git/HEAD accessible",
@@ -95,6 +96,8 @@ def test_rutt_store_save_with_findings():
     assert call1[1]["host"] == "example.com"
     assert call1[1]["severity"] == "high"
     assert call1[1]["source"] == "aplomado"
+    assert call1[1]["data"]["id"] == "finding-1"
+    assert call1[1]["data"]["check"] == "Exposed .git"
     assert "evidence" in call1[1]["data"]
 
     # review() should NOT be called when findings exist

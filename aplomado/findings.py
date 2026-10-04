@@ -73,13 +73,16 @@ def _as_str(value: object) -> str:
 
 
 def finding_id(target: str, title: str, evidence: str) -> str:
-    """Deterministic finding ID: ``sha256(target || '\\0' || title || '\\0' || evidence)``.
+    """Return a stable SHA-256 ID for target, finding title, and evidence.
 
-    Same target + title + evidence always produces the same ID, so re-scans
-    dedupe cleanly in Rutt and in Quarterdeck's event history.  Different
-    targets with the same finding title get different IDs.
+    Compact JSON gives unambiguous component boundaries even when text contains
+    delimiters. Display-only and model-supplied IDs are intentionally ignored.
     """
-    payload = f"{target}\0{title}\0{evidence}".encode()
+    payload = json.dumps(
+        [str(target), str(title), str(evidence)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -140,7 +143,9 @@ def normalize_findings(
         f for f in (normalize_finding(i) for i in raw_findings) if f is not None
     ]
 
-    resolved_target = payload_target or _as_str(target)
+    # The caller-owned scan target is authoritative. Model output must not
+    # change finding identity or redirect downstream lifecycle records.
+    resolved_target = _as_str(target) or payload_target
 
     # Stamp each finding with a deterministic ID.
     for f in findings:
