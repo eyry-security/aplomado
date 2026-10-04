@@ -15,6 +15,7 @@ from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
 from .write_policy import harden_sandbox
 from .command_policy import harden_commands
+from .scratchpad import scratchpad_tools
 
 
 class AplomadoError(RuntimeError):
@@ -151,7 +152,7 @@ def run_scan(
         agent = PinnaceAgent(
             model=model,
             sandbox=sandbox,
-            tools=[ffuf_tool(sandbox)],
+            tools=[ffuf_tool(sandbox)] + scratchpad_tools(lambda: sandbox),
             system_prompt=prompts.system_prompt,
             max_turns=max_turns,
             session_id=session_id,
