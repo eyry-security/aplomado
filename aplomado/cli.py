@@ -2,18 +2,21 @@
 
 Subcommands:
   scan    run an AI security review against one target
+  config  show resolved configuration
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from pinnace import DockerSandbox, LocalSandbox, PinnaceError, SandboxError
 
 from . import __version__
 from .scanner import AplomadoError, load_target_file, run_scan
+from .store import NullStore, resolve_store
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,6 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--max-turns", type=int, default=30, help="agent turn limit")
     sp.add_argument("--session", help="persist/resume the transcript under this name")
     sp.add_argument("--json", action="store_true", help="print the findings as JSON")
+    sp.add_argument(
+        "--rutt-dsn",
+        default=None,
+        help="persist findings to Rutt (env $RUTT_DSN / $DATABASE_URL)",
+    )
+
+    sub.add_parser("config", help="show resolved configuration")
 
     return p
 
@@ -103,6 +113,8 @@ def cmd_scan(args) -> int:
         _log(str(e))
         return 2
 
+    store = resolve_store(args.rutt_dsn)
+
     _log(f"scanning {target} (model: {args.model or '$PINNACE_MODEL'})")
     try:
         envelope = run_scan(
@@ -112,6 +124,7 @@ def cmd_scan(args) -> int:
             target_context=context,
             max_turns=args.max_turns,
             session_id=args.session,
+            store=store,
             log=_log,
         )
     except PinnaceError as e:
@@ -122,6 +135,10 @@ def cmd_scan(args) -> int:
             sandbox.close()
         except Exception:  # noqa: BLE001 - best-effort teardown
             pass
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     if args.json:
         print(json.dumps(envelope, indent=2), flush=True)
@@ -130,7 +147,17 @@ def cmd_scan(args) -> int:
     return 0
 
 
-_DISPATCH = {"scan": cmd_scan}
+def cmd_config(args) -> int:
+    """Show resolved configuration (model, sandbox, store)."""
+    model = os.environ.get("PINNACE_MODEL", "anthropic:claude-opus-4-6")
+    rutt_dsn = os.environ.get("RUTT_DSN") or os.environ.get("DATABASE_URL") or "(not set)"
+    print(f"  model              {model}")
+    print(f"  default sandbox    docker (python:3.12-slim)")
+    print(f"  rutt_dsn           {rutt_dsn}")
+    return 0
+
+
+_DISPATCH = {"scan": cmd_scan, "config": cmd_config}
 
 
 def main(argv=None) -> int:
