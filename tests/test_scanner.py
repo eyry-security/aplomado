@@ -272,3 +272,64 @@ def test_system_prompt_mentions_ffuf_tool():
     from aplomado.prompts import SYSTEM_PROMPT
 
     assert "ffuf(" in SYSTEM_PROMPT
+
+
+def test_run_scan_combines_ffuf_scratchpad_and_hardened_shell(tmp_path):
+    """All new tools share one sandbox without bypassing generic-shell policy."""
+    sandbox = StubSandbox()
+    sandbox.exec_scripts[f"test -x ./{FFUF_BIN}"] = ExecResult("", "", 0)
+    sandbox.exec_scripts[f"./{FFUF_BIN}"] = ExecResult(
+        ".git/HEAD  [Status: 200]\n", "", 0
+    )
+    sandbox.exec_scripts["python3 scratch/_scratchpad.py"] = ExecResult(
+        "analysis-ok\n", "", 0
+    )
+
+    class CombinedToolModel:
+        def __init__(self):
+            self.calls = 0
+            self.tool_names = []
+            self.tool_outputs = {}
+
+        def bind_tools(self, tools):
+            self.tool_names = [tool.name for tool in tools]
+            return self
+
+        def invoke(self, messages):
+            self.calls += 1
+            if self.calls == 1:
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        _tc("shell", {"command": "echo recon-ok"}, 1),
+                        _tc("ffuf", {"url": "http://127.0.0.1/FUZZ"}, 2),
+                        _tc("python_scratchpad", {"code": "print('analysis-ok')"}, 3),
+                        _tc("shell", {"command": "rm -rf /"}, 4),
+                    ],
+                )
+            self.tool_outputs = {
+                message.tool_call_id: message.content
+                for message in messages
+                if getattr(message, "tool_call_id", None)
+            }
+            return AIMessage(
+                content="",
+                tool_calls=[_tc("finish", {"result": _FINISH_PAYLOAD}, 5)],
+            )
+
+    model = CombinedToolModel()
+    envelope = run_scan(
+        "http://127.0.0.1",
+        model=model,
+        sandbox=sandbox,
+        session_store=SessionStore(tmp_path / "sessions"),
+        log=lambda *a: None,
+    )
+
+    assert {"shell", "ffuf", "python_scratchpad"} <= set(model.tool_names)
+    assert ".git/HEAD" in model.tool_outputs["call-2"]
+    assert "analysis-ok" in model.tool_outputs["call-3"]
+    assert "not allowed" in model.tool_outputs["call-4"]
+    assert "rm -rf /" not in sandbox.commands
+    assert "echo recon-ok" in sandbox.commands
+    assert envelope["findings"][0]["title"] == "Server header leaks version"
