@@ -10,6 +10,7 @@ from pinnace.sandbox import DockerSandbox, SandboxError
 from .findings import normalize_findings
 from .fuzz import ffuf_tool
 from .prompts import SYSTEM_PROMPT, build_prompt
+from .scratchpad import scratchpad_tools
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
 
@@ -126,7 +127,7 @@ def run_scan(
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
     """
-    # The ffuf tool needs the same sandbox instance the agent runs in, so the
+    # Extra tools need the same sandbox instance the agent runs in, so the
     # default DockerSandbox is built here (not inside PinnaceAgent) and torn
     # down after the run.
     own_sandbox = False
@@ -137,7 +138,7 @@ def run_scan(
         agent = PinnaceAgent(
             model=model,
             sandbox=sandbox,
-            tools=[ffuf_tool(sandbox)],
+            tools=[ffuf_tool(sandbox), *scratchpad_tools(sandbox)],
             system_prompt=SYSTEM_PROMPT,
             max_turns=max_turns,
             session_id=session_id,

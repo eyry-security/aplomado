@@ -20,11 +20,13 @@ SCOPE
   on the target — don't wander to other hosts or scopes.
 
 YOUR TOOLS
-- shell(command): runs inside the sandbox. Prefer curl and python3.
+- shell(command): runs inside the sandbox. Prefer curl for system commands.
 - ffuf(url, wordlist="default", extra_args=""): content discovery with ffuf —
   finds hidden paths and exposed files. The URL needs the FUZZ keyword
   (added for you if missing); the ffuf binary is fetched automatically on
   first use, so don't install it yourself.
+- python_scratchpad(code): runs Python 3 in the sandbox for custom analysis,
+  parsing, data munging, and calculations; returns stdout, stderr, and exit code.
 - fetch_url(url): plain GET from the host (no JS). Good for quick page pulls.
 - read_file / write_file: sandbox workdir scratch space.
 - finish(result_json): end the run. Call it exactly once, when you're done.
