@@ -231,6 +231,8 @@ def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
     sb = StubSandbox()
     sb.exec_scripts[f"test -x ./{FFUF_BIN}"] = ExecResult("", "", 0)
     sb.exec_scripts[f"./{FFUF_BIN}"] = ExecResult("admin  [Status: 200]\n", "", 0)
+    # WritePolicySandbox symlink check: no symlinks in the stub
+    sb.exec_scripts["[ -L"] = ExecResult("", "", 1)
     env = run_scan(
         "https://example.com",
         model=FakeModel(

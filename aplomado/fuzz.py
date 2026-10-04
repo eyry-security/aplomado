@@ -20,7 +20,7 @@ FFUF_TARBALL_URL = (
     "https://github.com/ffuf/ffuf/releases/download/"
     f"{FFUF_VERSION}/ffuf_{FFUF_VERSION.lstrip('v')}_linux_amd64.tar.gz"
 )
-WORDLIST_NAME = "_ffuf_default.txt"
+WORDLIST_NAME = "scratch/_ffuf_default.txt"
 # Cap tool output so one chatty fuzz run can't eat the context window.
 MAX_FFUF_OUTPUT = 20_000
 
