@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 
 from pinnace import PinnaceAgent
+from pinnace.sandbox import DockerSandbox, SandboxError
 
 from .findings import normalize_findings
+from .fuzz import ffuf_tool
 from .prompts import SYSTEM_PROMPT, build_prompt
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
@@ -88,6 +90,21 @@ def _unwrap_finish_payload(structured: object) -> object:
     return structured
 
 
+def _default_sandbox():
+    """Create the default DockerSandbox.
+
+    Mirrors the helpful error PinnaceAgent used to raise itself: DockerSandbox
+    construction fails fast when the daemon isn't reachable, so say so plainly
+    and point at the explicit-sandbox escape hatch.
+    """
+    try:
+        return DockerSandbox()
+    except SandboxError as e:
+        raise AplomadoError(
+            f"{e} Pass sandbox= explicitly (e.g. LocalSandbox for dev)."
+        ) from e
+
+
 def run_scan(
     target: str,
     *,
@@ -109,16 +126,31 @@ def run_scan(
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
     """
-    agent = PinnaceAgent(
-        model=model,
-        sandbox=sandbox,
-        system_prompt=SYSTEM_PROMPT,
-        max_turns=max_turns,
-        session_id=session_id,
-        session_store=session_store,
-        log=log or (lambda *a: None),
-    )
-    result = agent.run(build_prompt(target, target_context))
+    # The ffuf tool needs the same sandbox instance the agent runs in, so the
+    # default DockerSandbox is built here (not inside PinnaceAgent) and torn
+    # down after the run.
+    own_sandbox = False
+    if sandbox is None:
+        sandbox = _default_sandbox()
+        own_sandbox = True
+    try:
+        agent = PinnaceAgent(
+            model=model,
+            sandbox=sandbox,
+            tools=[ffuf_tool(sandbox)],
+            system_prompt=SYSTEM_PROMPT,
+            max_turns=max_turns,
+            session_id=session_id,
+            session_store=session_store,
+            log=log or (lambda *a: None),
+        )
+        result = agent.run(build_prompt(target, target_context))
+    finally:
+        if own_sandbox:
+            try:
+                sandbox.close()
+            except Exception:  # noqa: BLE001 - best-effort teardown
+                pass
 
     ok = True
     error = None

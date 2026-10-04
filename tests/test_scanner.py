@@ -11,10 +11,12 @@ from langchain_core.messages import AIMessage
 
 from aplomado.cli import build_parser
 from aplomado.findings import SEVERITIES
+from aplomado.fuzz import FFUF_BIN
 from aplomado.scanner import AplomadoError, build_prompt, load_target_file, run_scan
 from pinnace import LocalSandbox
-from pinnace.sandbox import SandboxError
+from pinnace.sandbox import ExecResult, SandboxError
 from pinnace.session import SessionStore
+from test_fuzz import StubSandbox
 
 
 def _tc(name, args, i):
@@ -223,3 +225,50 @@ def test_all_finding_severities_valid(tmp_path):
         [AIMessage(content="", tool_calls=[_tc("finish", {"result": _FINISH_PAYLOAD}, 1)])],
     )
     assert all(f["severity"] in SEVERITIES for f in env["findings"])
+
+
+def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
+    sb = StubSandbox()
+    sb.exec_scripts[f"test -x ./{FFUF_BIN}"] = ExecResult("", "", 0)
+    sb.exec_scripts[f"./{FFUF_BIN}"] = ExecResult("admin  [Status: 200]\n", "", 0)
+    env = run_scan(
+        "https://example.com",
+        model=FakeModel(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[_tc("ffuf", {"url": "https://example.com/FUZZ"}, 1)],
+                ),
+                AIMessage(
+                    content="",
+                    tool_calls=[_tc("finish", {"result": _FINISH_PAYLOAD}, 2)],
+                ),
+            ]
+        ),
+        sandbox=sb,
+        session_store=SessionStore(tmp_path / "sessions"),
+        log=lambda *a: None,
+    )
+    runs = [c for c in sb.commands if c.startswith(f"./{FFUF_BIN} ")]
+    assert len(runs) == 1
+    assert "example.com/FUZZ" in runs[0]
+    assert env["findings"][0]["title"] == "Server header leaks version"
+
+
+def test_run_scan_no_docker_gives_helpful_error(monkeypatch):
+    def _boom(*a, **k):
+        raise SandboxError("docker daemon not reachable: nope")
+
+    monkeypatch.setattr("aplomado.scanner.DockerSandbox", _boom)
+    with pytest.raises(AplomadoError, match="Pass sandbox="):
+        run_scan(
+            "https://example.com",
+            model=FakeModel([AIMessage(content="done")]),
+            sandbox=None,
+        )
+
+
+def test_system_prompt_mentions_ffuf_tool():
+    from aplomado.prompts import SYSTEM_PROMPT
+
+    assert "ffuf(" in SYSTEM_PROMPT
