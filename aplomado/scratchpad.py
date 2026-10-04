@@ -7,7 +7,7 @@ from collections.abc import Callable
 from langchain_core.tools import BaseTool, StructuredTool
 from pinnace import Sandbox, builtin_tools
 
-SCRATCHPAD_PATH = "_scratchpad.py"
+SCRATCHPAD_PATH = "scratch/_scratchpad.py"
 SCRATCHPAD_TIMEOUT_SECONDS = 30.0
 SandboxProvider = Sandbox | Callable[[], Sandbox]
 
