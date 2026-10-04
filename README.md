@@ -164,6 +164,18 @@ pytest
 
 Scripted fake models, `LocalSandbox` — no Docker, no API keys, no network.
 
+## File-writing safety
+
+Aplomado wraps its Pinnace sandbox with a write policy before exposing
+`write_file` to the model. Writes must use a relative path below `scratch/`,
+UTF-8 content is limited to 1,000,000 bytes, and credential/repository-control
+names such as `.env`, `.git`, and `.ssh` are rejected. Existing symlink path
+components are also rejected so a scratch path cannot redirect a write.
+
+The policy applies to the structured `write_file` tool. The sandbox's command
+runner is unchanged; command-execution restrictions are a separate hardening
+layer. Docker remains the default for untrusted model actions.
+
 ## The Eyry suite
 
 - **Vedette**: fast, multi-threaded HTTP prober (Rust) — feeds Aplomado targets

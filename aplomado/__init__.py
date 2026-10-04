@@ -15,6 +15,12 @@ from .prompts import (
 from .scanner import load_target_file, parse_stdin_record, run_scan
 from .store import FindingStore, NullStore, RuttStore, resolve_store
 from .wordlists import Wordlist, get_wordlist, list_wordlists, read_wordlist
+from .write_policy import (
+    WRITE_MAX_BYTES,
+    WRITE_ROOT,
+    WritePolicySandbox,
+    harden_sandbox,
+)
 
 __version__ = "0.1.0"
 
@@ -41,6 +47,10 @@ __all__ = [
     "available_prompt_packs",
     "get_prompt_pack",
     "load_prompt_pack",
+    "WRITE_MAX_BYTES",
+    "WRITE_ROOT",
+    "WritePolicySandbox",
+    "harden_sandbox",
     "load_target_file",
     "normalize_findings",
     "parse_stdin_record",

@@ -13,6 +13,7 @@ from .prompts import PromptPack, build_prompt, get_prompt_pack
 from .thinking import ThinkingModel, prepare_thinking_model
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
+from .write_policy import harden_sandbox
 
 
 class AplomadoError(RuntimeError):
@@ -142,6 +143,8 @@ def run_scan(
     if sandbox is None:
         sandbox = _default_sandbox()
         own_sandbox = True
+    # Harden the sandbox: writes jailed to scratch/, sensitive paths blocked.
+    sandbox = harden_sandbox(sandbox)
     try:
         agent = PinnaceAgent(
             model=model,

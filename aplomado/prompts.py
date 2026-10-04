@@ -71,7 +71,9 @@ YOUR TOOLS
   (added for you if missing); the ffuf binary is fetched automatically on
   first use, so don't install it yourself.
 - fetch_url(url): plain GET from the host (no JS). Good for quick page pulls.
-- read_file / write_file: sandbox workdir scratch space.
+- read_file(path): reads files from the sandbox workdir.
+- write_file(path, content): writes scratch files under scratch/ only. Writes
+  over 1 MB, sensitive filenames, path traversal, and symlink paths are blocked.
 - finish(result_json): end the run. Call it exactly once, when you're done.
 
 RECON PLAYBOOK (adapt to the target; skip what doesn't apply)
