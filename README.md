@@ -122,6 +122,20 @@ pytest
 
 Scripted fake models, `LocalSandbox` — no Docker, no API keys, no network.
 
+## Command-execution safety
+
+Aplomado wraps every scan sandbox with a strict command policy before exposing
+the `shell` tool. It permits a compact set of light-recon and text-processing
+commands, including `curl`, `dig`, `openssl s_client`, and simple pipelines.
+Shell expansion, redirection, background/control operators, filesystem mutation,
+privilege and host-control commands, risky curl file options, and commands over
+16 KiB are rejected before execution. Each command is capped at 60 seconds.
+
+General-purpose Python execution is allowed only when Aplomado creates its
+default container sandbox. It stays disabled for `LocalSandbox`, even when the
+operator explicitly enables that development mode. The policy is defense in
+depth; the disposable container remains the isolation boundary.
+
 ## The Eyry suite
 
 - **Vedette**: fast, multi-threaded HTTP prober (Rust) — feeds Aplomado targets

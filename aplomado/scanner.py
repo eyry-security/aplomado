@@ -13,6 +13,7 @@ from .prompts import SYSTEM_PROMPT, build_prompt
 from .scratchpad import scratchpad_tools
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
+from .command_policy import harden_commands
 
 
 class AplomadoError(RuntimeError):
@@ -127,17 +128,18 @@ def run_scan(
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
     """
-    # Extra tools need the same sandbox instance the agent runs in, so the
-    # default DockerSandbox is built here (not inside PinnaceAgent) and torn
-    # down after the run.
+    # Extra tools need the same base sandbox instance the agent runs in. The
+    # model-facing shell receives a restricted proxy, while the structured
+    # ffuf and scratchpad tools keep their own narrowly validated operations.
     own_sandbox = False
     if sandbox is None:
         sandbox = _default_sandbox()
         own_sandbox = True
+    restricted_sandbox = harden_commands(sandbox)
     try:
         agent = PinnaceAgent(
             model=model,
-            sandbox=sandbox,
+            sandbox=restricted_sandbox,
             tools=[ffuf_tool(sandbox), *scratchpad_tools(sandbox)],
             system_prompt=SYSTEM_PROMPT,
             max_turns=max_turns,
@@ -149,7 +151,7 @@ def run_scan(
     finally:
         if own_sandbox:
             try:
-                sandbox.close()
+                restricted_sandbox.close()
             except Exception:  # noqa: BLE001 - best-effort teardown
                 pass
 
