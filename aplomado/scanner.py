@@ -14,6 +14,7 @@ from .thinking import ThinkingModel, prepare_thinking_model
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
 from .write_policy import harden_sandbox
+from .command_policy import harden_commands
 
 
 class AplomadoError(RuntimeError):
@@ -143,8 +144,9 @@ def run_scan(
     if sandbox is None:
         sandbox = _default_sandbox()
         own_sandbox = True
-    # Harden the sandbox: writes jailed to scratch/, sensitive paths blocked.
-    sandbox = harden_sandbox(sandbox)
+    # Harden the sandbox: writes jailed to scratch/, sensitive paths blocked,
+    # commands restricted to allowlist.
+    sandbox = harden_commands(harden_sandbox(sandbox))
     try:
         agent = PinnaceAgent(
             model=model,

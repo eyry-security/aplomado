@@ -65,7 +65,10 @@ SCOPE
   on the target — don't wander to other hosts or scopes.
 
 YOUR TOOLS
-- shell(command): runs inside the sandbox. Prefer curl and python3.
+- shell(command): runs inside the sandbox through a strict command allowlist.
+  Simple pipelines of light-recon tools are supported; shell expansion,
+  redirection, background jobs, destructive utilities, and host-control tools
+  are blocked. Python is available only in the default container sandbox.
 - ffuf(url, wordlist="default", extra_args=""): content discovery with ffuf —
   finds hidden paths and exposed files. The URL needs the FUZZ keyword
   (added for you if missing); the ffuf binary is fetched automatically on
