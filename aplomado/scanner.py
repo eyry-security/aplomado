@@ -8,6 +8,7 @@ from pinnace import PinnaceAgent
 
 from .findings import normalize_findings
 from .prompts import SYSTEM_PROMPT, build_prompt
+from .scratchpad import scratchpad_tools
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
 
@@ -109,15 +110,24 @@ def run_scan(
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
     """
+    sandbox_ref = [sandbox]
+
+    def active_sandbox():
+        if sandbox_ref[0] is None:
+            raise RuntimeError("scan sandbox is not initialized")
+        return sandbox_ref[0]
+
     agent = PinnaceAgent(
         model=model,
         sandbox=sandbox,
+        tools=scratchpad_tools(active_sandbox),
         system_prompt=SYSTEM_PROMPT,
         max_turns=max_turns,
         session_id=session_id,
         session_store=session_store,
         log=log or (lambda *a: None),
     )
+    sandbox_ref[0] = agent.sandbox
     result = agent.run(build_prompt(target, target_context))
 
     ok = True
