@@ -1,5 +1,14 @@
 """aplomado: AI security scanner and reviewer built on Pinnace."""
 
+from .command_policy import (
+    COMMAND_ALLOWLIST,
+    COMMAND_MAX_BYTES,
+    COMMAND_TIMEOUT_SECONDS,
+    CommandPolicyError,
+    CommandPolicySandbox,
+    harden_commands,
+    validate_command,
+)
 from .events import EventSink, FileSink, NullSink as NullEventSink, StdoutSink, build_event, resolve_sink
 from .findings import SEVERITIES, finding_id, normalize_findings
 from .prompts import SYSTEM_PROMPT, build_prompt
@@ -10,6 +19,11 @@ __version__ = "0.1.0"
 
 __all__ = [
     "__version__",
+    "COMMAND_ALLOWLIST",
+    "COMMAND_MAX_BYTES",
+    "COMMAND_TIMEOUT_SECONDS",
+    "CommandPolicyError",
+    "CommandPolicySandbox",
     "EventSink",
     "FileSink",
     "FindingStore",
@@ -22,10 +36,12 @@ __all__ = [
     "build_event",
     "build_prompt",
     "finding_id",
+    "harden_commands",
     "load_target_file",
     "normalize_findings",
     "parse_stdin_record",
     "resolve_sink",
     "resolve_store",
     "run_scan",
+    "validate_command",
 ]

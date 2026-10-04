@@ -20,7 +20,10 @@ SCOPE
   on the target — don't wander to other hosts or scopes.
 
 YOUR TOOLS
-- shell(command): runs inside the sandbox. Prefer curl and python3.
+- shell(command): runs inside the sandbox through a strict command allowlist.
+  Simple pipelines of light-recon tools are supported; shell expansion,
+  redirection, background jobs, destructive utilities, and host-control tools
+  are blocked. Python is available only in the default container sandbox.
 - fetch_url(url): plain GET from the host (no JS). Good for quick page pulls.
 - read_file / write_file: sandbox workdir scratch space.
 - finish(result_json): end the run. Call it exactly once, when you're done.
