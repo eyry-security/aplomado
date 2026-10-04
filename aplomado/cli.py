@@ -28,6 +28,7 @@ from .scanner import AplomadoError, load_target_file, parse_stdin_record, run_sc
 from .store import resolve_store
 from .events import build_event, resolve_sink
 from .findings import normalize_findings
+from .wordlists import get_wordlist, list_wordlists
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,6 +83,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--event-sink",
         default=None,
         help="write aplomado.scan.completed events: file path, or '-' for stdout",
+    )
+
+    wp = sub.add_parser(
+        "wordlists", help="list or print the curated discovery wordlists"
+    )
+    wp.add_argument(
+        "name",
+        nargs="?",
+        help="logical list name; omit to show the installed catalog",
+    )
+    wp.add_argument(
+        "--json", action="store_true", help="print catalog metadata as JSON"
     )
 
     sub.add_parser("config", help="show resolved configuration")
@@ -281,7 +294,36 @@ def cmd_config(args) -> int:
     return 0
 
 
-_DISPATCH = {"scan": cmd_scan, "config": cmd_config}
+def cmd_wordlists(args) -> int:
+    """List bundled wordlists or print one as raw, pipe-friendly text."""
+    if args.name:
+        try:
+            wordlist = get_wordlist(args.name)
+        except ValueError as exc:
+            _log(str(exc))
+            return 2
+        if args.json:
+            payload = wordlist.as_dict()
+            payload["words"] = list(wordlist.entries())
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            sys.stdout.write(wordlist.read_text())
+        return 0
+
+    catalog = [wordlist.as_dict() for wordlist in list_wordlists()]
+    if args.json:
+        print(json.dumps(catalog, indent=2, sort_keys=True))
+        return 0
+
+    for item in catalog:
+        print(
+            f"{item['name']:<16} {item['kind']:<9} "
+            f"{item['entries']:>3}  {item['description']}"
+        )
+    return 0
+
+
+_DISPATCH = {"scan": cmd_scan, "config": cmd_config, "wordlists": cmd_wordlists}
 
 
 def main(argv=None) -> int:
