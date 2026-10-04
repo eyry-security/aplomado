@@ -50,6 +50,25 @@ aplomado scan --target https://example.com
 aplomado scan --target https://example.com --sandbox local --unsafe-ok
 ```
 
+## Bundled wordlists
+
+Aplomado ships a small, original discovery pack, so integrations do not need a
+separate corpus download. The pack favors high-signal defaults over exhaustive
+coverage and includes common web paths, API routes, parameter names, and
+virtual-host labels. Inspect the catalog or pipe a raw list into another tool:
+
+```bash
+aplomado wordlists
+aplomado wordlists --json
+aplomado wordlists common-paths > /tmp/common-paths.txt
+```
+
+Logical names are fixed (`common-paths`, `api-routes`, `parameters`, and
+`virtual-hosts`); filesystem paths are never accepted as names. Python callers
+can use `list_wordlists()`, `get_wordlist()`, or `read_wordlist()` from the
+`aplomado` package. The files are included in installed wheels and remain
+available through `importlib.resources`.
+
 ## Findings schema
 
 Every scan returns this envelope — it seeds the suite's shared findings schema, so Vedette's

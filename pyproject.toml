@@ -30,3 +30,6 @@ aplomado = "aplomado.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["aplomado*"]
+
+[tool.setuptools.package-data]
+"aplomado.wordlists" = ["*.txt", "NOTICE.md"]
