@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aplomado"
+version = "0.1.0"
+description = "AI security scanner and vulnerability reviewer, built on Pinnace. The strike of the Eyry recon suite."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Eyry", email = "hello@eyry.io" }]
+keywords = ["security", "scanner", "ai", "llm", "agent", "recon", "bugbounty", "vulnerability"]
+dependencies = [
+    "pinnace>=0.1.0,<0.2.0",
+]
+
+[project.urls]
+Homepage = "https://eyry.io"
+Repository = "https://github.com/eyry-security/aplomado"
+
+[project.scripts]
+aplomado = "aplomado.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aplomado*"]
