@@ -17,6 +17,8 @@ later, with Quarterdeck orchestration.
 - Runs a security-reviewer agent on it inside an isolated Docker sandbox via Pinnace
 - Does light recon with what's actually in the image — DNS, headers, TLS, common files — and is
   honest about tool limits (no pretending nmap exists in a slim image)
+- Gives the agent a Python 3 scratchpad for custom parsing, data munging, and calculations; code
+  runs inside the scan sandbox with a fixed 30-second timeout
 - Emits findings in a shared JSON schema (see below)
 
 Only scan targets you're authorized to test. Aplomado does recon, not exploitation, but pointing
