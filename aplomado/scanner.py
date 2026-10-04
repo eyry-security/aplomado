@@ -9,6 +9,7 @@ from pinnace import PinnaceAgent
 from .findings import normalize_findings
 from .prompts import SYSTEM_PROMPT, build_prompt
 from .store import FindingStore, NullStore, resolve_store
+from .events import EventSink, NullSink, build_event
 
 
 class AplomadoError(RuntimeError):
@@ -65,6 +66,7 @@ def run_scan(
     session_id: str | None = None,
     session_store=None,
     store: FindingStore | None = None,
+    event_sink: EventSink | None = None,
     log=None,
 ) -> dict:
     """Run one scan and return the normalized findings envelope.
@@ -73,6 +75,7 @@ def run_scan(
         PinnaceAgent falls back to $PINNACE_MODEL / its default).
     sandbox: a pinnace Sandbox, or None for the default Docker sandbox.
     store: a FindingStore to persist results to (NullStore if None).
+    event_sink: an EventSink to emit an aplomado.scan.completed event to.
     """
     agent = PinnaceAgent(
         model=model,
@@ -84,6 +87,9 @@ def run_scan(
         log=log or (lambda *a: None),
     )
     result = agent.run(build_prompt(target, target_context))
+
+    ok = True
+    error = None
     if result.finished:
         envelope = normalize_findings(_unwrap_finish_payload(result.structured), target)
     else:
@@ -94,8 +100,14 @@ def run_scan(
             },
             target,
         )
+        if not result.final:
+            ok = False
+            error = "scan ended without calling finish()"
 
     if store is not None:
         store.save(envelope)
+
+    if event_sink is not None:
+        event_sink.emit(build_event(envelope, ok=ok, error=error))
 
     return envelope

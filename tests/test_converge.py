@@ -104,3 +104,81 @@ def test_cli_parser_rutt_dsn_explicit():
 def test_cli_parser_config_subcommand():
     args = build_parser().parse_args(["config"])
     assert args.cmd == "config"
+
+
+# -- event sink wiring in run_scan ---------------------------------------------
+
+def test_run_scan_emits_event_to_sink(tmp_path):
+    mock_sink = MagicMock()
+    run_scan(
+        "https://example.com",
+        model=FakeModel([
+            AIMessage(content="", tool_calls=[_tc("finish", {"result": _FINISH_PAYLOAD}, 1)]),
+        ]),
+        sandbox=LocalSandbox(str(tmp_path / "work"), unsafe_ok=True),
+        session_store=SessionStore(tmp_path / "sessions"),
+        event_sink=mock_sink,
+        log=lambda *a: None,
+    )
+    mock_sink.emit.assert_called_once()
+    event = mock_sink.emit.call_args[0][0]
+    assert event["type"] == "aplomado.scan.completed"
+    assert event["producer"] == "aplomado"
+    assert event["data"]["target"] == "https://example.com"
+    assert event["data"]["ok"] is True
+    assert len(event["data"]["findings"]) == 1
+
+
+def test_run_scan_no_finish_emits_event_with_ok_false(tmp_path):
+    mock_sink = MagicMock()
+    run_scan(
+        "https://example.com",
+        model=FakeModel([
+            AIMessage(content="", tool_calls=[_tc("shell", {"command": "echo x"}, i)])
+            for i in range(5)
+        ]),
+        sandbox=LocalSandbox(str(tmp_path / "work"), unsafe_ok=True),
+        session_store=SessionStore(tmp_path / "sessions"),
+        event_sink=mock_sink,
+        max_turns=2,
+        log=lambda *a: None,
+    )
+    mock_sink.emit.assert_called_once()
+    event = mock_sink.emit.call_args[0][0]
+    assert event["data"]["ok"] is False
+    assert "error" in event["data"]
+
+
+def test_run_scan_without_sink_still_works(tmp_path):
+    env = run_scan(
+        "https://example.com",
+        model=FakeModel([AIMessage(content="all clear")]),
+        sandbox=LocalSandbox(str(tmp_path / "work"), unsafe_ok=True),
+        session_store=SessionStore(tmp_path / "sessions"),
+        event_sink=None,
+        log=lambda *a: None,
+    )
+    assert env["target"] == "https://example.com"
+
+
+# -- CLI event-sink flag -------------------------------------------------------
+
+def test_cli_parser_event_sink_default():
+    args = build_parser().parse_args(["scan", "--target", "https://example.com"])
+    assert args.event_sink is None
+
+
+def test_cli_parser_event_sink_explicit():
+    args = build_parser().parse_args([
+        "scan", "--target", "https://example.com",
+        "--event-sink", "/tmp/events.jsonl",
+    ])
+    assert args.event_sink == "/tmp/events.jsonl"
+
+
+def test_cli_parser_event_sink_stdout():
+    args = build_parser().parse_args([
+        "scan", "--target", "https://example.com",
+        "--event-sink", "-",
+    ])
+    assert args.event_sink == "-"

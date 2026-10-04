@@ -17,6 +17,7 @@ from pinnace import DockerSandbox, LocalSandbox, PinnaceError, SandboxError
 from . import __version__
 from .scanner import AplomadoError, load_target_file, run_scan
 from .store import NullStore, resolve_store
+from .events import resolve_sink
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--rutt-dsn",
         default=None,
         help="persist findings to Rutt (env $RUTT_DSN / $DATABASE_URL)",
+    )
+    sp.add_argument(
+        "--event-sink",
+        default=None,
+        help="write aplomado.scan.completed events: file path, or '-' for stdout",
     )
 
     sub.add_parser("config", help="show resolved configuration")
@@ -114,6 +120,7 @@ def cmd_scan(args) -> int:
         return 2
 
     store = resolve_store(args.rutt_dsn)
+    sink = resolve_sink(args.event_sink)
 
     _log(f"scanning {target} (model: {args.model or '$PINNACE_MODEL'})")
     try:
@@ -125,6 +132,7 @@ def cmd_scan(args) -> int:
             max_turns=args.max_turns,
             session_id=args.session,
             store=store,
+            event_sink=sink,
             log=_log,
         )
     except PinnaceError as e:
@@ -137,6 +145,10 @@ def cmd_scan(args) -> int:
             pass
         try:
             store.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            sink.close()
         except Exception:  # noqa: BLE001
             pass
 
