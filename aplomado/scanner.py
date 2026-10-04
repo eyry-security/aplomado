@@ -10,6 +10,7 @@ from pinnace.sandbox import DockerSandbox, SandboxError
 from .findings import normalize_findings
 from .fuzz import ffuf_tool
 from .prompts import PromptPack, build_prompt, get_prompt_pack
+from .thinking import ThinkingModel, prepare_thinking_model
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
 
@@ -117,6 +118,7 @@ def run_scan(
     store: FindingStore | None = None,
     event_sink: EventSink | None = None,
     prompt_pack: PromptPack | None = None,
+    thinking: str | None = None,
     log=None,
 ) -> dict:
     """Run one scan and return the normalized findings envelope.
@@ -127,8 +129,12 @@ def run_scan(
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
     prompt_pack: versioned system/run prompts (the default pack if None).
+    thinking: opt-in reasoning narration: ``"compact"`` or ``"verbose"``.
+        Reasoning is sent only to ``log`` and is bounded in both modes.
     """
     prompts = prompt_pack or get_prompt_pack()
+    effective_log = log or (lambda *args: None)
+    model = prepare_thinking_model(model, thinking)
     # The ffuf tool needs the same sandbox instance the agent runs in, so the
     # default DockerSandbox is built here (not inside PinnaceAgent) and torn
     # down after the run.
@@ -145,8 +151,12 @@ def run_scan(
             max_turns=max_turns,
             session_id=session_id,
             session_store=session_store,
-            log=log or (lambda *a: None),
+            log=effective_log,
         )
+        if thinking is not None:
+            # Keep agent.model concrete for Pinnace capability checks; only observe
+            # the final tool-bound invocation layer.
+            agent.bound = ThinkingModel(agent.bound, thinking, effective_log)
         result = agent.run(build_prompt(target, target_context, prompts))
     finally:
         if own_sandbox:
