@@ -1,13 +1,58 @@
-"""System prompt and prompt-building helpers for Aplomado scans.
-
-Extracted from scanner.py so it's easy to iterate on the prompt without
-touching the agent wiring, and so tests can import it independently.
-"""
+"""Visible, versioned prompt packs and overrides for Aplomado scans."""
 
 from __future__ import annotations
 
-# The full security-reviewer system prompt.  Changes here affect every scan;
-# keep edits intentional and test via test_scanner.py::test_build_prompt.
+import re
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+
+_PROMPT_TOKEN = re.compile(r"\{(target|target_context_block)\}")
+
+
+class PromptError(ValueError):
+    """A prompt pack name, template, or override file is invalid."""
+
+
+@dataclass(frozen=True)
+class PromptPack:
+    """One immutable, versioned pair of system and per-run prompts."""
+
+    name: str
+    version: int
+    system_prompt: str
+    run_prompt_template: str
+    overrides: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise PromptError("prompt pack name cannot be empty")
+        if self.version < 1:
+            raise PromptError("prompt pack version must be positive")
+        if not self.system_prompt.strip():
+            raise PromptError("system prompt cannot be empty")
+        if not self.run_prompt_template.strip():
+            raise PromptError("run prompt template cannot be empty")
+        if "{target}" not in self.run_prompt_template:
+            raise PromptError("run prompt template must contain {target}")
+
+    @property
+    def identifier(self) -> str:
+        """Stable built-in ID, with an explicit suffix for local overrides."""
+        identifier = f"{self.name}-v{self.version}"
+        if self.overrides:
+            identifier += "+" + "+".join(self.overrides)
+        return identifier
+
+    def render(self, target: str, target_context: str | None = None) -> str:
+        """Render only documented tokens; unrelated braces remain untouched."""
+        context_block = f"{target_context}\n\n" if target_context else ""
+        values = {"target": target, "target_context_block": context_block}
+        return _PROMPT_TOKEN.sub(lambda match: values[match.group(1)], self.run_prompt_template)
+
+
+# The full security-reviewer system prompt. Changes here require a new pack
+# version so operators can identify exactly which instructions drove a scan.
 SYSTEM_PROMPT = """\
 You are Aplomado, an AI security reviewer — the strike half of the Eyry suite.
 
@@ -69,11 +114,80 @@ info finding describing what you checked. Never invent evidence: if you didn't
 observe it, don't report it.
 """
 
+RUN_PROMPT_TEMPLATE = """\
+TARGET: {target}
 
-def build_prompt(target: str, target_context: str | None = None) -> str:
-    """Assemble the run prompt from the target and optional prober context."""
-    parts = [f"TARGET: {target}"]
-    if target_context:
-        parts.append(target_context)
-    parts.append("Investigate the target, then call finish() with your findings JSON.")
-    return "\n\n".join(parts)
+{target_context_block}Investigate the target, then call finish() with your findings JSON."""
+
+DEFAULT_PROMPT_PACK_ID = "recon-v1"
+_RECON_V1 = PromptPack(
+    name="recon",
+    version=1,
+    system_prompt=SYSTEM_PROMPT,
+    run_prompt_template=RUN_PROMPT_TEMPLATE,
+)
+_PROMPT_PACKS = {DEFAULT_PROMPT_PACK_ID: _RECON_V1}
+
+
+def available_prompt_packs() -> tuple[PromptPack, ...]:
+    """Return built-in packs in stable display order."""
+    return tuple(_PROMPT_PACKS.values())
+
+
+def get_prompt_pack(identifier: str | None = None) -> PromptPack:
+    """Resolve a built-in prompt pack; ``default`` tracks the current default."""
+    requested = identifier or DEFAULT_PROMPT_PACK_ID
+    if requested == "default":
+        requested = DEFAULT_PROMPT_PACK_ID
+    try:
+        return _PROMPT_PACKS[requested]
+    except KeyError as exc:
+        choices = ", ".join(_PROMPT_PACKS)
+        raise PromptError(
+            f"unknown prompt pack {identifier!r}; available: {choices}"
+        ) from exc
+
+
+def _read_override(path: str, label: str) -> str:
+    try:
+        content = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise PromptError(f"cannot read {label} {path!r}: {exc}") from exc
+    if not content.strip():
+        raise PromptError(f"{label} {path!r} is empty")
+    return content
+
+
+def load_prompt_pack(
+    identifier: str | None = None,
+    *,
+    system_prompt_file: str | None = None,
+    run_prompt_file: str | None = None,
+) -> PromptPack:
+    """Resolve a built-in pack and apply optional UTF-8 text-file overrides."""
+    pack = get_prompt_pack(identifier)
+    overrides: list[str] = []
+    changes: dict[str, object] = {}
+    if system_prompt_file:
+        changes["system_prompt"] = _read_override(
+            system_prompt_file, "system prompt file"
+        )
+        overrides.append("system")
+    if run_prompt_file:
+        changes["run_prompt_template"] = _read_override(
+            run_prompt_file, "run prompt file"
+        )
+        overrides.append("run")
+    if not changes:
+        return pack
+    changes["overrides"] = tuple(overrides)
+    return replace(pack, **changes)
+
+
+def build_prompt(
+    target: str,
+    target_context: str | None = None,
+    prompt_pack: PromptPack | None = None,
+) -> str:
+    """Assemble the run prompt using the selected pack."""
+    return (prompt_pack or get_prompt_pack()).render(target, target_context)

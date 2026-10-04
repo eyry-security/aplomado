@@ -9,7 +9,7 @@ from pinnace.sandbox import DockerSandbox, SandboxError
 
 from .findings import normalize_findings
 from .fuzz import ffuf_tool
-from .prompts import SYSTEM_PROMPT, build_prompt
+from .prompts import PromptPack, build_prompt, get_prompt_pack
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
 
@@ -116,6 +116,7 @@ def run_scan(
     session_store=None,
     store: FindingStore | None = None,
     event_sink: EventSink | None = None,
+    prompt_pack: PromptPack | None = None,
     log=None,
 ) -> dict:
     """Run one scan and return the normalized findings envelope.
@@ -125,7 +126,9 @@ def run_scan(
     sandbox: a pinnace Sandbox, or None for the default Docker sandbox.
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
+    prompt_pack: versioned system/run prompts (the default pack if None).
     """
+    prompts = prompt_pack or get_prompt_pack()
     # The ffuf tool needs the same sandbox instance the agent runs in, so the
     # default DockerSandbox is built here (not inside PinnaceAgent) and torn
     # down after the run.
@@ -138,13 +141,13 @@ def run_scan(
             model=model,
             sandbox=sandbox,
             tools=[ffuf_tool(sandbox)],
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=prompts.system_prompt,
             max_turns=max_turns,
             session_id=session_id,
             session_store=session_store,
             log=log or (lambda *a: None),
         )
-        result = agent.run(build_prompt(target, target_context))
+        result = agent.run(build_prompt(target, target_context, prompts))
     finally:
         if own_sandbox:
             try:

@@ -29,6 +29,13 @@ from .store import resolve_store
 from .events import build_event, resolve_sink
 from .findings import normalize_findings
 from .wordlists import get_wordlist, list_wordlists
+from .prompts import (
+    DEFAULT_PROMPT_PACK_ID,
+    PromptError,
+    available_prompt_packs,
+    get_prompt_pack,
+    load_prompt_pack,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,6 +91,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="write aplomado.scan.completed events: file path, or '-' for stdout",
     )
+    sp.add_argument(
+        "--prompt-pack",
+        default=DEFAULT_PROMPT_PACK_ID,
+        help=f"versioned prompt pack (default: {DEFAULT_PROMPT_PACK_ID})",
+    )
+    sp.add_argument(
+        "--system-prompt-file",
+        help="UTF-8 file replacing the selected pack's system prompt",
+    )
+    sp.add_argument(
+        "--run-prompt-file",
+        help="UTF-8 run template replacing the selected pack's template; must include {target}",
+    )
 
     wp = sub.add_parser(
         "wordlists", help="list or print the curated discovery wordlists"
@@ -98,6 +118,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("config", help="show resolved configuration")
+    pp = sub.add_parser("prompts", help="list or display versioned prompt packs")
+    pp.add_argument("--pack", help="display the full contents of one prompt pack")
+    pp.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
     return p
 
@@ -198,6 +221,7 @@ def _run_one(target: str, context: str | None, args, sandbox, store, sink,
         session_id=session_id if session_id is not None else args.session,
         store=store,
         event_sink=sink,
+        prompt_pack=getattr(args, "_prompt_pack", None),
         log=_log,
     )
 
@@ -205,9 +229,14 @@ def _run_one(target: str, context: str | None, args, sandbox, store, sink,
 def cmd_scan(args) -> int:
     try:
         targets = _iter_targets(args)
+        args._prompt_pack = load_prompt_pack(
+            getattr(args, "prompt_pack", DEFAULT_PROMPT_PACK_ID),
+            system_prompt_file=getattr(args, "system_prompt_file", None),
+            run_prompt_file=getattr(args, "run_prompt_file", None),
+        )
         store = resolve_store(args.rutt_dsn)
         sink = resolve_sink(args.event_sink)
-    except (AplomadoError, OSError, RuntimeError) as exc:
+    except (AplomadoError, PromptError, OSError, RuntimeError) as exc:
         _log(str(exc))
         return 2
 
@@ -225,7 +254,8 @@ def cmd_scan(args) -> int:
                 location = f"stdin line {lineno}" if lineno is not None else "explicit input"
                 _log(
                     f"scanning {target} ({location}; model: "
-                    f"{args.model or '$PINNACE_MODEL'})"
+                    f"{args.model or '$PINNACE_MODEL'}; prompt: "
+                    f"{args._prompt_pack.identifier})"
                 )
                 sandbox = None
                 try:
@@ -285,11 +315,12 @@ def cmd_scan(args) -> int:
 
 
 def cmd_config(args) -> int:
-    """Show resolved configuration (model, sandbox, store)."""
+    """Show resolved configuration (model, sandbox, store, prompts)."""
     model = os.environ.get("PINNACE_MODEL", "anthropic:claude-opus-4-6")
     rutt_dsn = os.environ.get("RUTT_DSN") or os.environ.get("DATABASE_URL") or "(not set)"
     print(f"  model              {model}")
     print(f"  default sandbox    docker (python:3.12-slim)")
+    print(f"  prompt pack        {DEFAULT_PROMPT_PACK_ID}")
     print(f"  rutt_dsn           {rutt_dsn}")
     return 0
 
@@ -323,8 +354,50 @@ def cmd_wordlists(args) -> int:
     return 0
 
 
-_DISPATCH = {"scan": cmd_scan, "config": cmd_config, "wordlists": cmd_wordlists}
+def _prompt_payload(pack) -> dict:
+    return {
+        "id": pack.identifier,
+        "name": pack.name,
+        "version": pack.version,
+        "system_prompt": pack.system_prompt,
+        "run_prompt_template": pack.run_prompt_template,
+    }
 
+
+def cmd_prompts(args) -> int:
+    """List prompt pack IDs or print one pack's complete instructions."""
+    try:
+        if args.pack:
+            pack = get_prompt_pack(args.pack)
+            if args.json:
+                print(json.dumps(_prompt_payload(pack), indent=2))
+            else:
+                print(f"prompt pack: {pack.identifier}")
+                print("\nSYSTEM PROMPT\n-------------")
+                print(pack.system_prompt.rstrip())
+                print("\nRUN PROMPT TEMPLATE\n-------------------")
+                print(pack.run_prompt_template.rstrip())
+            return 0
+
+        packs = available_prompt_packs()
+        if args.json:
+            print(json.dumps([_prompt_payload(pack) for pack in packs], indent=2))
+        else:
+            for pack in packs:
+                suffix = " (default)" if pack.identifier == DEFAULT_PROMPT_PACK_ID else ""
+                print(f"{pack.identifier}{suffix}")
+        return 0
+    except PromptError as exc:
+        _log(str(exc))
+        return 2
+
+
+
+
+
+
+
+_DISPATCH = {"scan": cmd_scan, "config": cmd_config, "wordlists": cmd_wordlists, "prompts": cmd_prompts}
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
