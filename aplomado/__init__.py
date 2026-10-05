@@ -13,6 +13,13 @@ from .prompts import (
     load_prompt_pack,
 )
 from .scanner import load_target_file, parse_stdin_record, run_scan
+from .auth import CookieJar, auth_tools
+from .crawl import crawl_tools, hakrawler_tool, katana_tool
+from .nuclei import nuclei_tool
+from .xss import dalfox_tool
+from .sqli import sqli_tool
+from .params import param_discovery_tool
+from .jsrecon import js_recon_tool
 from .store import FindingStore, NullStore, RuttStore, resolve_store
 from .wordlists import Wordlist, get_wordlist, list_wordlists, read_wordlist
 from .write_policy import (
@@ -58,4 +65,14 @@ __all__ = [
     "resolve_sink",
     "resolve_store",
     "run_scan",
+    "CookieJar",
+    "auth_tools",
+    "crawl_tools",
+    "hakrawler_tool",
+    "katana_tool",
+    "nuclei_tool",
+    "dalfox_tool",
+    "sqli_tool",
+    "param_discovery_tool",
+    "js_recon_tool",
 ]

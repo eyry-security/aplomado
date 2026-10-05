@@ -31,6 +31,11 @@ COMMAND_ALLOWLIST = frozenset(
         "dig",
         "echo",
         "ffuf",
+        "katana",
+        "hakrawler",
+        "nuclei",
+        "dalfox",
+        "sqlmap",
         "getent",
         "test",
         "grep",
@@ -302,9 +307,9 @@ def validate_command(command: str, *, allow_interpreters: bool = False) -> None:
     for parts in commands:
         executable = parts[0]
         name = executable.casefold()
-        # Allow ./ffuf (the bundled binary, run from workdir)
-        if name == "./ffuf":
-            name = "ffuf"
+        # Allow ./<binary> for bundled binaries run from the workdir
+        if name.startswith("./"):
+            name = name[2:]
         if "/" in name or name not in allowed:
             raise CommandPolicyError(f"command is not allowed: {executable!r}")
         arguments = parts[1:]

@@ -26,7 +26,9 @@ def test_default_pack_is_named_versioned_and_discoverable():
     pack = get_prompt_pack()
     assert pack.identifier == DEFAULT_PROMPT_PACK_ID == "recon-v1"
     assert get_prompt_pack("default") is pack
-    assert available_prompt_packs() == (pack,)
+    packs = available_prompt_packs()
+    assert pack in packs
+    assert get_prompt_pack("bughunter-v1").identifier == "bughunter-v1"
 
 
 def test_unknown_pack_lists_available_ids():
@@ -151,7 +153,9 @@ def test_scan_parser_exposes_prompt_controls():
 
 def test_prompts_command_lists_and_displays_full_pack(capsys):
     assert main(["prompts"]) == 0
-    assert capsys.readouterr().out.strip() == "recon-v1 (default)"
+    listed = capsys.readouterr().out.strip().splitlines()
+    assert "recon-v1 (default)" in listed
+    assert "bughunter-v1" in listed
 
     assert main(["prompts", "--pack", "recon-v1", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)

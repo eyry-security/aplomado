@@ -16,6 +16,13 @@ from .events import EventSink, NullSink, build_event
 from .write_policy import harden_sandbox
 from .command_policy import harden_commands
 from .scratchpad import scratchpad_tools
+from .auth import CookieJar, auth_tools
+from .crawl import crawl_tools
+from .nuclei import nuclei_tool
+from .xss import dalfox_tool
+from .sqli import sqli_tool
+from .params import param_discovery_tool
+from .jsrecon import js_recon_tool
 
 
 class AplomadoError(RuntimeError):
@@ -109,6 +116,26 @@ def _default_sandbox():
         ) from e
 
 
+def _bughunter_tools(sandbox) -> list:
+    """Build the bug-hunter toolset sharing one auth cookie jar.
+
+    The jar is shared so a single set_auth_session call propagates to
+    every tool that accepts credentials (katana, nuclei, dalfox).
+    """
+    jar = CookieJar()
+    return (
+        auth_tools(jar)
+        + crawl_tools(sandbox, jar)
+        + [
+            nuclei_tool(sandbox, jar),
+            dalfox_tool(sandbox, jar),
+            sqli_tool(sandbox, jar),
+            param_discovery_tool(sandbox, jar),
+            js_recon_tool(sandbox, jar),
+        ]
+    )
+
+
 def run_scan(
     target: str,
     *,
@@ -152,7 +179,11 @@ def run_scan(
         agent = PinnaceAgent(
             model=model,
             sandbox=sandbox,
-            tools=[ffuf_tool(sandbox)] + scratchpad_tools(lambda: sandbox),
+            tools=(
+                [ffuf_tool(sandbox)]
+                + _bughunter_tools(sandbox)
+                + scratchpad_tools(lambda: sandbox)
+            ),
             system_prompt=prompts.system_prompt,
             max_turns=max_turns,
             session_id=session_id,
