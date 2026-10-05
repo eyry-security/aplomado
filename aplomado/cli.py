@@ -135,7 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _log(msg: str) -> None:
-    print(f"[aplomado] {msg}", file=sys.stderr, flush=True)
+    from .pretty import color, colorize_log
+
+    prefix = color("[aplomado]", "cyan", "bold")
+    print(f"{prefix} {colorize_log(msg)}", file=sys.stderr, flush=True)
 
 
 def _make_sandbox(args):
@@ -149,19 +152,25 @@ def _make_sandbox(args):
 
 
 def _print_findings(env: dict) -> None:
+    from .pretty import color, severity_tag
+
+    out = sys.stdout
     print(f"target:     {env['target']}")
     print(f"scanned_at: {env['scanned_at']}")
     print(f"summary:    {env['summary']}")
     findings = env["findings"]
-    print(f"findings:   {len(findings)}")
+    n = len(findings)
+    print(f"findings:   {color(str(n), 'bold', stream=out)}")
     for f in findings:
         fid = f.get("id", "")[:12]
-        prefix = f"[{f['severity'].upper()}]"
-        print(f"\n{prefix} {f['title']}" + (f"  ({fid})" if fid else ""))
+        tag = severity_tag(f.get("severity", "info"), stream=out)
+        title = color(f["title"], "bold", stream=out)
+        suffix = color(f"  ({fid})", "dim", stream=out) if fid else ""
+        print(f"\n{tag} {title}{suffix}")
         if f.get("detail"):
             print("  " + f["detail"].replace("\n", "\n  "))
         if f.get("evidence"):
-            print("  evidence:")
+            print(color("  evidence:", "dim", stream=out))
             for line in f["evidence"].splitlines():
                 print(f"  | {line}")
 
