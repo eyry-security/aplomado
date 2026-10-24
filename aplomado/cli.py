@@ -28,6 +28,7 @@ from .scanner import AplomadoError, load_target_file, parse_stdin_record, run_sc
 from .store import resolve_store
 from .events import build_event, resolve_sink
 from .findings import normalize_findings
+from .models import DEFAULT_MODEL, resolve_model
 from .wordlists import get_wordlist, list_wordlists
 from .prompts import (
     DEFAULT_PROMPT_PACK_ID,
@@ -61,7 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--model",
         default=None,
-        help="model ref 'provider:model' (default: $PINNACE_MODEL)",
+        help=(
+            "model ref 'provider:model' "
+            f"(default: $PINNACE_MODEL or {DEFAULT_MODEL})"
+        ),
     )
     sp.add_argument("--sandbox", choices=["docker", "local"], default="docker")
     sp.add_argument(
@@ -273,7 +277,7 @@ def cmd_scan(args) -> int:
                 location = f"stdin line {lineno}" if lineno is not None else "explicit input"
                 _log(
                     f"scanning {target} ({location}; model: "
-                    f"{args.model or '$PINNACE_MODEL'}; prompt: "
+                    f"{resolve_model(args.model)}; prompt: "
                     f"{args._prompt_pack.identifier})"
                 )
                 sandbox = None
@@ -335,7 +339,7 @@ def cmd_scan(args) -> int:
 
 def cmd_config(args) -> int:
     """Show resolved configuration (model, sandbox, store, prompts)."""
-    model = os.environ.get("PINNACE_MODEL", "anthropic:claude-opus-4-6")
+    model = resolve_model()
     rutt_dsn = os.environ.get("RUTT_DSN") or os.environ.get("DATABASE_URL") or "(not set)"
     print(f"  model              {model}")
     print(f"  default sandbox    docker (python:3.12-slim)")
