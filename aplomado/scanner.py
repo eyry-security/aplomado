@@ -8,6 +8,7 @@ from pinnace import PinnaceAgent
 from pinnace.sandbox import DockerSandbox, SandboxError
 
 from .findings import normalize_findings
+from .models import DEFAULT_MODEL, resolve_model
 from .fuzz import ffuf_tool
 from .prompts import PromptPack, build_prompt, get_prompt_pack
 from .thinking import ThinkingModel, prepare_thinking_model
@@ -154,7 +155,7 @@ def run_scan(
     """Run one scan and return the normalized findings envelope.
 
     model: a langchain chat model, a "provider:model" ref, or None (then
-        PinnaceAgent falls back to $PINNACE_MODEL / its default).
+        $PINNACE_MODEL / Aplomado's DeepSeek default is used).
     sandbox: a pinnace Sandbox, or None for the default Docker sandbox.
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
@@ -164,7 +165,7 @@ def run_scan(
     """
     prompts = prompt_pack or get_prompt_pack()
     effective_log = log or (lambda *args: None)
-    model = prepare_thinking_model(model, thinking)
+    model = prepare_thinking_model(resolve_model(model), thinking)
     # The ffuf tool needs the same sandbox instance the agent runs in, so the
     # default DockerSandbox is built here (not inside PinnaceAgent) and torn
     # down after the run.

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from typing import Callable
 
-from pinnace import AgentConfig, PinnaceError
+from pinnace import PinnaceError
+from pinnace.catalog import DEEPSEEK_API_KEY_ENV, DEEPSEEK_BASE_URL
+
+from .models import resolve_model
 
 COMPACT_MAX_CHARS = 240
 VERBOSE_MAX_CHARS = 4000
@@ -82,14 +86,25 @@ def _make_model(model_ref: str):
         raise PinnaceError(
             f"bad model ref {model_ref!r}: want 'provider:model'"
         )
+    provider_key = provider.lower()
+    chat_provider = provider
     kwargs: dict = {}
-    if provider == "anthropic":
+    if provider_key == "deepseek":
+        api_key = os.environ.get(DEEPSEEK_API_KEY_ENV)
+        if not api_key:
+            raise PinnaceError(
+                f"deepseek models need {DEEPSEEK_API_KEY_ENV} in the environment"
+            )
+        chat_provider = "openai"
+        kwargs["base_url"] = DEEPSEEK_BASE_URL
+        kwargs["api_key"] = api_key
+    elif provider_key == "anthropic":
         kwargs["thinking"] = {
             "type": "enabled",
             "budget_tokens": THINKING_BUDGET_TOKENS,
         }
         kwargs["max_tokens"] = THINKING_MAX_TOKENS
-    return init_chat_model(name, model_provider=provider, **kwargs)
+    return init_chat_model(name, model_provider=chat_provider, **kwargs)
 
 
 class ThinkingModel:
@@ -126,7 +141,7 @@ def prepare_thinking_model(model, mode: str | None):
     if mode not in {"compact", "verbose"}:
         raise ValueError(f"unknown thinking mode: {mode!r}")
     if model is None:
-        model = AgentConfig.resolve().model
+        model = resolve_model()
     if isinstance(model, str):
         model = _make_model(model)
     return model

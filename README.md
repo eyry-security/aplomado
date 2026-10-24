@@ -27,11 +27,13 @@ any scanner at someone else's infrastructure without permission is on you.
 ```bash
 pip install -e .            # the aplomado CLI
 pip install -e ../pinnace   # not on PyPI yet; needed for local dev
-pip install "pinnace[anthropic]"  # or pinnace[openai], for a real model
+pip install "pinnace[openai]"  # DeepSeek uses the OpenAI-compatible provider
 ```
 
-Set your model the Pinnace way: `export PINNACE_MODEL=anthropic:claude-sonnet-4-5`
-(see [pinnace](https://github.com/eyry-security/pinnace)).
+Aplomado defaults to DeepSeek (`deepseek:deepseek-flash`); set `DEEPSEEK_API_KEY`
+before scanning. Override per run with `--model`, or set `PINNACE_MODEL` (for
+example `anthropic:claude-sonnet-4-5`, after installing `pinnace[anthropic]`).
+See [pinnace](https://github.com/eyry-security/pinnace).
 
 ## Quickstart
 
@@ -129,7 +131,7 @@ aplomado scan --target <host-or-URL> [--target-file vedette.jsonl]
 |---|---|---|
 | `--target` | (required) | Host or URL. Overridden by `--target-file`'s record if given |
 | `--target-file` | – | Vedette JSONL; the first record supplies the target label + context |
-| `--model` | `$PINNACE_MODEL` | `provider:model`, e.g. `anthropic:claude-sonnet-4-5` |
+| `--model` | `$PINNACE_MODEL` or `deepseek:deepseek-flash` | `provider:model`, e.g. `deepseek:deepseek-v4-pro` or `anthropic:claude-sonnet-4-5` |
 | `--sandbox` | `docker` | `local` needs `--unsafe-ok` (dev/tests only) |
 | `--image` | `python:3.12-slim` | Docker image for the sandbox |
 | `--no-net` | off | Cut sandbox network egress |
@@ -148,9 +150,9 @@ Exit codes: `0` scan completed (even with critical findings — parse `--json` o
 ```python
 from aplomado import run_scan, normalize_findings
 
+# Uses deepseek:deepseek-flash by default.
 envelope = run_scan(
     "https://example.com",
-    model="anthropic:claude-sonnet-4-5",
     max_turns=20,
 )
 print(envelope["findings"])

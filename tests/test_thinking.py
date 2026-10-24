@@ -112,6 +112,27 @@ def test_prepare_thinking_model_builds_supported_extended_model(monkeypatch):
     assert seen["kwargs"]["max_tokens"] == THINKING_MAX_TOKENS
 
 
+def test_prepare_thinking_model_builds_deepseek_via_openai_compatible_path(
+    monkeypatch,
+):
+    seen = {}
+    fake = FakeModel([AIMessage(content="done")])
+
+    def fake_init(name, model_provider=None, **kwargs):
+        seen.update(name=name, provider=model_provider, kwargs=kwargs)
+        return fake
+
+    monkeypatch.setattr("langchain.chat_models.init_chat_model", fake_init)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-key-for-test")
+    prepared = prepare_thinking_model("deepseek:deepseek-flash", "compact")
+    assert prepared is fake
+    assert seen["name"] == "deepseek-flash"
+    assert seen["provider"] == "openai"
+    assert seen["kwargs"]["base_url"] == "https://api.deepseek.com/v1"
+    assert seen["kwargs"]["api_key"] == "dummy-key-for-test"
+    assert "thinking" not in seen["kwargs"]
+
+
 def test_prepare_thinking_model_off_preserves_lazy_resolution():
     assert prepare_thinking_model(None, None) is None
 
