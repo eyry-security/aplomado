@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 
-from pinnace import PinnaceAgent
 from pinnace.sandbox import DockerSandbox, SandboxError
 
+from .agent import AplomadoAgent
 from .findings import normalize_findings
 from .models import DEFAULT_MODEL, resolve_model
 from .fuzz import ffuf_tool
@@ -24,6 +24,10 @@ from .xss import dalfox_tool
 from .sqli import sqli_tool
 from .params import param_discovery_tool
 from .jsrecon import js_recon_tool
+
+# Construction point kept patchable for tests and embedders. AplomadoAgent is
+# PinnaceAgent with protocol-safe handling of parallel tool calls.
+PinnaceAgent = AplomadoAgent
 
 
 class AplomadoError(RuntimeError):

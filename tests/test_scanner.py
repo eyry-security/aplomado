@@ -7,7 +7,7 @@ tools against LocalSandbox), then finish() with findings JSON.
 import json
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from aplomado.cli import build_parser
 from aplomado.findings import SEVERITIES
@@ -36,6 +36,18 @@ class FakeModel:
     def invoke(self, messages):
         self.calls += 1
         return self.script[min(self.calls - 1, len(self.script) - 1)]
+
+
+class RecordingModel(FakeModel):
+    """FakeModel that also records the messages sent on each invoke."""
+
+    def __init__(self, script):
+        super().__init__(script)
+        self.requests = []
+
+    def invoke(self, messages):
+        self.requests.append(list(messages))
+        return super().invoke(messages)
 
 
 _FINISH_PAYLOAD = json.dumps(
@@ -76,6 +88,86 @@ def test_scan_shell_then_finish(tmp_path):
     assert f["severity"] == "high"  # coerced
     assert f["title"] == "Server header leaks version"
     assert f["evidence"] == "Server: nginx/1.25.3"
+
+
+def test_scan_answers_every_parallel_tool_call(tmp_path):
+    model = RecordingModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    _tc("write_file", {"path": "scratch/alpha.txt", "content": "alpha"}, 1),
+                    _tc("write_file", {"path": "scratch/beta.txt", "content": "beta"}, 2),
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[_tc("finish", {"result": _FINISH_PAYLOAD}, 3)],
+            ),
+        ]
+    )
+    env = _scripted_agent(tmp_path, [], model=model)
+
+    assert env["summary"] == "One issue worth fixing."
+    assert len(model.requests) == 2
+    tool_messages = [
+        m for m in model.requests[1] if isinstance(m, ToolMessage)
+    ]
+    assert [m.tool_call_id for m in tool_messages] == ["call-1", "call-2"]
+    assert [m.name for m in tool_messages] == ["write_file", "write_file"]
+    work = tmp_path / "work"
+    assert (work / "scratch" / "alpha.txt").read_text().strip() == "alpha"
+    assert (work / "scratch" / "beta.txt").read_text().strip() == "beta"
+
+
+def test_scan_answers_calls_after_finish_in_same_turn(tmp_path):
+    model = RecordingModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    _tc("write_file", {"path": "scratch/before.txt", "content": "before"}, 1),
+                    _tc("finish", {"result": _FINISH_PAYLOAD}, 2),
+                    _tc("write_file", {"path": "scratch/after.txt", "content": "after"}, 3),
+                ],
+            ),
+        ]
+    )
+    env = _scripted_agent(tmp_path, [], model=model)
+
+    assert env["summary"] == "One issue worth fixing."
+    assert model.calls == 1
+    work = tmp_path / "work"
+    assert (work / "scratch" / "before.txt").read_text().strip() == "before"
+    assert (work / "scratch" / "after.txt").read_text().strip() == "after"
+
+
+def test_scan_unknown_tool_call_gets_error_and_loop_continues(tmp_path):
+    model = RecordingModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    _tc("no_such_tool", {"x": 1}, 1),
+                    _tc("write_file", {"path": "scratch/ok.txt", "content": "ok"}, 2),
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[_tc("finish", {"result": _FINISH_PAYLOAD}, 3)],
+            ),
+        ]
+    )
+    env = _scripted_agent(tmp_path, [], model=model)
+
+    assert env["summary"] == "One issue worth fixing."
+    assert len(model.requests) == 2
+    tool_messages = [
+        m for m in model.requests[1] if isinstance(m, ToolMessage)
+    ]
+    assert [m.tool_call_id for m in tool_messages] == ["call-1", "call-2"]
+    assert tool_messages[0].content == "error: unknown tool 'no_such_tool'"
+    assert (tmp_path / "work" / "scratch" / "ok.txt").read_text().strip() == "ok"
 
 
 def test_scan_without_finish_keeps_final_text(tmp_path):
