@@ -19,16 +19,19 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
+from .binaries import require_binary
 
 NUCLEI_VERSION = "v3.3.9"
 NUCLEI_BIN = "nuclei"
-NUCLEI_ZIP_URL = (
-    "https://github.com/projectdiscovery/nuclei/releases/download/"
-    f"{NUCLEI_VERSION}/nuclei_{NUCLEI_VERSION.lstrip('v')}_linux_amd64.zip"
-)
+NUCLEI_TEMPLATES_DIR = "/opt/nuclei-templates"
 
 # Curated, high-signal template selection. Never run the full library.
-NUCLEI_TEMPLATES = ["cves/", "exposures/", "misconfiguration/", "takeovers/"]
+NUCLEI_TEMPLATES = [
+    f"{NUCLEI_TEMPLATES_DIR}/http/cves/",
+    f"{NUCLEI_TEMPLATES_DIR}/http/exposures/",
+    f"{NUCLEI_TEMPLATES_DIR}/http/misconfiguration/",
+    f"{NUCLEI_TEMPLATES_DIR}/http/takeovers/",
+]
 NUCLEI_SEVERITY = "critical,high"
 NUCLEI_EXCLUDE_TAGS = "dos,fuzz"
 NUCLEI_RATE_LIMIT = 50  # requests/second cap — tread lightly
@@ -37,31 +40,21 @@ MAX_NUCLEI_OUTPUT = 30_000
 
 
 def _ensure_nuclei(sandbox: Sandbox) -> str | None:
+    """Verify nuclei and its template library are pre-installed."""
+    err = require_binary(sandbox, NUCLEI_BIN, label="nuclei")
+    if err:
+        return err
     try:
-        probe = sandbox.exec(f"test -x ./{NUCLEI_BIN}", timeout=30.0)
+        probe = sandbox.exec(
+            f"test -d {shlex.quote(NUCLEI_TEMPLATES_DIR)}", timeout=30.0)
     except Exception as e:  # noqa: BLE001 - surface to the model
-        return f"error: can't probe for the nuclei binary: {e}"
-    if probe.exit_code == 0:
-        return None
-    code = (
-        "import os, urllib.request, zipfile; "
-        f"urllib.request.urlretrieve({NUCLEI_ZIP_URL!r}, 'nuclei.zip'); "
-        "zipfile.ZipFile('nuclei.zip').extractall('.'); "
-        f"os.chmod({NUCLEI_BIN!r}, 0o755); "
-    )
-    try:
-        dl = sandbox.exec("python3 -c " + shlex.quote(code), timeout=300.0)
-    except Exception as e:  # noqa: BLE001 - surface to the model
-        return f"error: nuclei download failed: {e}"
-    if dl.exit_code != 0:
-        return f"error: nuclei download failed: {dl.stderr.strip()[:300]}"
-    # One-time template library fetch.
-    try:
-        upd = sandbox.exec(f"./{NUCLEI_BIN} -update-templates -silent", timeout=900.0)
-    except Exception as e:  # noqa: BLE001 - surface to the model
-        return f"error: nuclei template update failed: {e}"
-    if upd.exit_code != 0:
-        return f"error: nuclei template update failed: {upd.stderr.strip()[:300]}"
+        return f"error: can't probe for the nuclei templates: {e}"
+    if probe.exit_code != 0:
+        return (
+            f"error: nuclei templates are not installed in the sandbox image "
+            f"({NUCLEI_TEMPLATES_DIR}); rebuild the Aplomado sandbox image. "
+            "No runtime download is attempted."
+        )
     return None
 
 
@@ -86,7 +79,7 @@ def nuclei_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTo
             ready["binary"] = True
         t_flags = " ".join(f"-t {shlex.quote(t)}" for t in NUCLEI_TEMPLATES)
         cmd = (
-            f"./{NUCLEI_BIN} -u {shlex.quote(target)} {t_flags} "
+            f"{NUCLEI_BIN} -u {shlex.quote(target)} {t_flags} "
             f"-severity {NUCLEI_SEVERITY} "
             f"-exclude-tags {NUCLEI_EXCLUDE_TAGS} "
             f"-rate-limit {NUCLEI_RATE_LIMIT} -silent -jsonl -nc"

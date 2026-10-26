@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from pinnace.sandbox import DockerSandbox, SandboxError
 
@@ -28,6 +29,16 @@ from .jsrecon import js_recon_tool
 # Construction point kept patchable for tests and embedders. AplomadoAgent is
 # PinnaceAgent with protocol-safe handling of parallel tool calls.
 PinnaceAgent = AplomadoAgent
+
+# The sandbox image ships the bug-hunter toolchain (nuclei, ffuf, dalfox,
+# katana, sqlmap, curl, dig, and nuclei templates). Build it from
+# aplomado/Dockerfile; override with APLOMADO_SANDBOX_IMAGE when needed.
+DEFAULT_SANDBOX_IMAGE = "aplomado-sandbox:latest"
+SANDBOX_IMAGE_ENV = "APLOMADO_SANDBOX_IMAGE"
+
+
+def default_sandbox_image() -> str:
+    return (os.environ.get(SANDBOX_IMAGE_ENV) or DEFAULT_SANDBOX_IMAGE).strip()
 
 
 class AplomadoError(RuntimeError):
@@ -113,11 +124,14 @@ def _default_sandbox():
     construction fails fast when the daemon isn't reachable, so say so plainly
     and point at the explicit-sandbox escape hatch.
     """
+    image = default_sandbox_image()
     try:
-        return DockerSandbox()
+        return DockerSandbox(image=image)
     except SandboxError as e:
         raise AplomadoError(
-            f"{e} Pass sandbox= explicitly (e.g. LocalSandbox for dev)."
+            f"{e} Sandbox image {image!r} is required; build it from "
+            "aplomado/Dockerfile or Pass sandbox= explicitly (e.g. "
+            "LocalSandbox for dev)."
         ) from e
 
 

@@ -40,11 +40,12 @@ def param_discovery_tool(
     """Build the parameter-discovery tool bound to *sandbox*."""
 
     def _get(url: str) -> tuple[int, int]:
-        """Return (status_code, body_length) for a GET."""
-        cmd = (
-            f"curl -sk -o /dev/null -w '%{{http_code}} %{{size_download}}' "
-            f"--max-time 20 {shlex.quote(url)}"
-        )
+        """Return (status_code, body_length) for a GET.
+
+        Uses ``curl -i`` rather than ``-o``/``-w`` so the request stays inside
+        the sandbox command policy's allowed curl surface.
+        """
+        cmd = f"curl -sk -i --max-time 20 {shlex.quote(url)}"
         if cookie_jar is not None:
             header = cookie_jar.cookie_header()
             if header:
@@ -53,11 +54,17 @@ def param_discovery_tool(
             result = sandbox.exec(cmd, timeout=60.0)
         except Exception:  # noqa: BLE001 - treat as miss
             return 0, 0
-        parts = result.stdout.strip().split()
+        raw = result.stdout
+        separator = "\r\n\r\n" if "\r\n\r\n" in raw else "\n\n"
+        head, _, body = raw.partition(separator)
+        lines = head.splitlines()
+        if not lines or not lines[0].startswith("HTTP/"):
+            return 0, 0
         try:
-            return int(parts[0]), int(parts[1])
+            code = int(lines[0].split()[1])
         except (IndexError, ValueError):
             return 0, 0
+        return code, len(body.encode("utf-8", "replace"))
 
     def discover_params(url: str) -> str:
         """Bruteforce hidden GET parameters on a URL.

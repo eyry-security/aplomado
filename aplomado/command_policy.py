@@ -15,7 +15,10 @@ from collections.abc import Sequence
 from pinnace import DockerSandbox, ExecResult, PinnaceError, Sandbox, SandboxError
 
 COMMAND_MAX_BYTES = 16_384
-COMMAND_TIMEOUT_SECONDS = 60.0
+# Ceiling for any single sandbox command. The model-facing shell tool keeps its
+# own 120s default; long-running internal scanners (nuclei/dalfox/sqlmap) pass
+# explicit timeouts up to 900s and must not be silently cut off at 60s.
+COMMAND_TIMEOUT_SECONDS = 920.0
 
 # Commands needed by the documented light-recon playbook. Shells, privilege
 # tools, package managers, process control, and filesystem mutation utilities
@@ -113,6 +116,23 @@ _CURL_LOCAL_SCHEMES = (
 
 class CommandPolicyError(SandboxError):
     """Raised when a shell command is rejected before execution."""
+
+
+def _is_container_isolated(sandbox: Sandbox) -> bool:
+    """True when the sandbox chain bottoms out in a DockerSandbox.
+
+    WritePolicySandbox/CommandPolicySandbox wrap the real sandbox, so a
+    direct isinstance check would wrongly treat production Docker runs as
+    unisolated and refuse python3.
+    """
+    current: object | None = sandbox
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, DockerSandbox):
+            return True
+        current = getattr(current, "_sandbox", None)
+    return False
 
 
 def _tokens(command: str) -> list[str]:
@@ -339,7 +359,7 @@ class CommandPolicySandbox(Sandbox):
             raise ValueError("timeout must be positive")
         self._sandbox = sandbox
         self.allow_interpreters = (
-            isinstance(sandbox, DockerSandbox)
+            _is_container_isolated(sandbox)
             if allow_interpreters is None
             else allow_interpreters
         )

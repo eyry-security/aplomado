@@ -19,9 +19,9 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
+from .binaries import require_binary
 
-SQLMAP_ZIP_URL = "https://github.com/sqlmapproject/sqlmap/archive/refs/heads/master.zip"
-SQLMAP_DIR = "sqlmap-master"
+SQLMAP_BIN = "sqlmap"
 MAX_SQLI_OUTPUT = 20_000
 
 # DBMS error strings that indicate a live injection point.
@@ -96,25 +96,8 @@ def _probe_indicators(
 
 
 def _ensure_sqlmap(sandbox: Sandbox) -> str | None:
-    try:
-        probe = sandbox.exec(f"test -x ./{SQLMAP_DIR}/sqlmap.py", timeout=30.0)
-    except Exception as e:  # noqa: BLE001 - surface to the model
-        return f"error: can't probe for sqlmap: {e}"
-    if probe.exit_code == 0:
-        return None
-    code = (
-        "import os, urllib.request, zipfile; "
-        f"urllib.request.urlretrieve({SQLMAP_ZIP_URL!r}, 'sqlmap.zip'); "
-        "zipfile.ZipFile('sqlmap.zip').extractall('.'); "
-        "os.remove('sqlmap.zip')"
-    )
-    try:
-        dl = sandbox.exec("python3 -c " + shlex.quote(code), timeout=300.0)
-    except Exception as e:  # noqa: BLE001 - surface to the model
-        return f"error: sqlmap download failed: {e}"
-    if dl.exit_code != 0:
-        return f"error: sqlmap download failed: {dl.stderr.strip()[:300]}"
-    return None
+    """Verify sqlmap is pre-installed in the sandbox image."""
+    return require_binary(sandbox, SQLMAP_BIN, label="sqlmap")
 
 
 def sqli_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTool:
@@ -145,7 +128,7 @@ def sqli_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTool
         sep = "&" if "?" in url else "?"
         target = f"{url}{sep}{param}=1"
         cmd = (
-            f"python3 ./{SQLMAP_DIR}/sqlmap.py -u {shlex.quote(target)} "
+            f"{SQLMAP_BIN} -u {shlex.quote(target)} "
             f"-p {shlex.quote(param)} --batch --level=3 --risk=2 "
             f"--random-agent --banner"
         )

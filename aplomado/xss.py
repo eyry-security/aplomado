@@ -14,38 +14,17 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
+from .binaries import require_binary
 
-DALFOX_VERSION = "v2.8.3"
+DALFOX_VERSION = "v3.2.4"
 DALFOX_BIN = "dalfox"
-DALFOX_TARBALL_URL = (
-    "https://github.com/hahwul/dalfox/releases/download/"
-    f"{DALFOX_VERSION}/dalfox_{DALFOX_VERSION.lstrip('v')}_linux_amd64.tar.gz"
-)
 
 MAX_DALFOX_OUTPUT = 20_000
 
 
 def _ensure_dalfox(sandbox: Sandbox) -> str | None:
-    try:
-        probe = sandbox.exec(f"test -x ./{DALFOX_BIN}", timeout=30.0)
-    except Exception as e:  # noqa: BLE001 - surface to the model
-        return f"error: can't probe for the dalfox binary: {e}"
-    if probe.exit_code == 0:
-        return None
-    code = (
-        "import os, tarfile, urllib.request; "
-        f"urllib.request.urlretrieve({DALFOX_TARBALL_URL!r}, 'dalfox.tar.gz'); "
-        f"tarfile.open('dalfox.tar.gz').extract({DALFOX_BIN!r}); "
-        f"os.chmod({DALFOX_BIN!r}, 0o755); "
-        "os.remove('dalfox.tar.gz')"
-    )
-    try:
-        dl = sandbox.exec("python3 -c " + shlex.quote(code), timeout=300.0)
-    except Exception as e:  # noqa: BLE001 - surface to the model
-        return f"error: dalfox download failed: {e}"
-    if dl.exit_code != 0:
-        return f"error: dalfox download failed: {dl.stderr.strip()[:300]}"
-    return None
+    """Verify the dalfox binary is pre-installed in the sandbox image."""
+    return require_binary(sandbox, DALFOX_BIN, label="dalfox")
 
 
 def dalfox_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTool:
@@ -66,7 +45,7 @@ def dalfox_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTo
                 return err
             ready["binary"] = True
         cmd = (
-            f"echo {shlex.quote(url)} | ./{DALFOX_BIN} pipe "
+            f"echo {shlex.quote(url)} | {DALFOX_BIN} pipe "
             f"--format json --skip-discovery"
         )
         if cookie_jar is not None:
