@@ -9,7 +9,6 @@ from langchain_core.tools import BaseTool
 from aplomado.fuzz import (
     DEFAULT_WORDLIST,
     FFUF_BIN,
-    FFUF_TARBALL_URL,
     MAX_FFUF_OUTPUT,
     WORDLIST_NAME,
     _check_extra_args,
@@ -45,11 +44,11 @@ class StubSandbox:
 
 
 def _binary_present(sb):
-    sb.exec_scripts[f"test -x ./{FFUF_BIN}"] = ExecResult("", "", 0)
+    sb.exec_scripts[f"test -x /usr/local/bin/{FFUF_BIN}"] = ExecResult("", "", 0)
 
 
 def _run_commands(sb):
-    return [c for c in sb.commands if c.startswith(f"./{FFUF_BIN} ")]
+    return [c for c in sb.commands if c.startswith(f"{FFUF_BIN} ")]
 
 
 # --- module helpers ---------------------------------------------------------
@@ -98,7 +97,7 @@ def test_ffuf_tool_is_a_langchain_tool():
 def test_run_writes_default_wordlist_and_fuzzes():
     sb = StubSandbox()
     _binary_present(sb)
-    sb.exec_scripts[f"./{FFUF_BIN}"] = ExecResult("admin  [Status: 200]\n", "", 0)
+    sb.exec_scripts[f"{FFUF_BIN} "] = ExecResult("admin  [Status: 200]\n", "", 0)
     tool = ffuf_tool(sb)
     out = tool.invoke({"url": "http://h/"})
     assert WORDLIST_NAME in sb.files
@@ -152,28 +151,24 @@ def test_extra_args_appended_when_safe():
 # --- binary provisioning ----------------------------------------------------
 
 
-def test_binary_downloaded_on_first_use_and_cached():
+def test_binary_probe_is_cached():
     sb = StubSandbox()
-    sb.exec_scripts[f"test -x ./{FFUF_BIN}"] = ExecResult("", "", 1)  # missing
-    sb.exec_scripts["python3 -c"] = ExecResult("", "", 0)  # download succeeds
+    _binary_present(sb)
     tool = ffuf_tool(sb)
     tool.invoke({"url": "http://h/FUZZ"})
     tool.invoke({"url": "http://h/FUZZ"})
-    downloads = [c for c in sb.commands if c.startswith("python3 -c")]
-    assert len(downloads) == 1
-    dl = downloads[0]
-    assert FFUF_TARBALL_URL in dl
-    assert "urlretrieve" in dl and "tarfile" in dl
-    assert len(_run_commands(sb)) == 2  # both invocations still ran ffuf
+    probes = [c for c in sb.commands if c.startswith("test -x ")]
+    assert len(probes) == 1
+    assert len(_run_commands(sb)) == 2
 
 
-def test_download_failure_returns_error_not_crash():
+def test_missing_binary_returns_error_without_download():
     sb = StubSandbox()
-    sb.exec_scripts[f"test -x ./{FFUF_BIN}"] = ExecResult("", "", 1)
-    sb.exec_scripts["python3 -c"] = ExecResult("", "network unreachable", 1)
+    sb.exec_scripts[f"test -x /usr/local/bin/{FFUF_BIN}"] = ExecResult("", "", 1)
     out = ffuf_tool(sb).invoke({"url": "http://h/FUZZ"})
     assert out.startswith("error:")
-    assert "download" in out
+    assert "not installed" in out
+    assert not any("python3 -c" in c or "urlretrieve" in c for c in sb.commands)
     assert not _run_commands(sb)
 
 
@@ -192,7 +187,7 @@ def test_probe_failure_returns_error_not_crash():
 def test_output_is_truncated_with_marker():
     sb = StubSandbox()
     _binary_present(sb)
-    sb.exec_scripts[f"./{FFUF_BIN}"] = ExecResult("x" * 60_000, "", 0)
+    sb.exec_scripts[f"{FFUF_BIN} "] = ExecResult("x" * 60_000, "", 0)
     out = ffuf_tool(sb).invoke({"url": "http://h/FUZZ"})
     assert len(out) <= MAX_FFUF_OUTPUT + 100
     assert "truncated" in out
@@ -202,7 +197,7 @@ def test_output_is_truncated_with_marker():
 def test_stderr_and_exit_code_surface_in_output():
     sb = StubSandbox()
     _binary_present(sb)
-    sb.exec_scripts[f"./{FFUF_BIN}"] = ExecResult("", "connection refused", 1)
+    sb.exec_scripts[f"{FFUF_BIN} "] = ExecResult("", "connection refused", 1)
     out = ffuf_tool(sb).invoke({"url": "http://h/FUZZ"})
     assert "[stderr]" in out
     assert "connection refused" in out

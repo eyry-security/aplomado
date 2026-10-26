@@ -151,6 +151,14 @@ def test_proxy_blocks_before_execution_and_caps_timeout():
     assert base.calls == [("echo safe", 5.0)]
 
 
+def test_proxy_allows_long_scanner_timeouts():
+    base = SpySandbox()
+    policy = CommandPolicySandbox(base)
+
+    policy.exec("nuclei -u https://example.com", timeout=900)
+    assert base.calls == [("nuclei -u https://example.com", 900.0)]
+
+
 def test_proxy_delegates_non_command_operations_and_close():
     base = SpySandbox()
     policy = CommandPolicySandbox(base)
@@ -170,6 +178,18 @@ def test_local_sandbox_does_not_enable_interpreters(tmp_path):
     assert policy.allow_interpreters is False
     with pytest.raises(CommandPolicyError):
         policy.exec("python3 -c 'print(1)'")
+
+
+def test_wrapped_docker_sandbox_enables_interpreters():
+    from pinnace.sandbox import DockerSandbox
+
+    from aplomado.write_policy import WritePolicySandbox
+
+    docker = DockerSandbox.__new__(DockerSandbox)
+    wrapped = WritePolicySandbox(docker)
+    policy = CommandPolicySandbox(wrapped)
+    assert policy.allow_interpreters is True
+    validate_command("python3 -c 'print(1)'", allow_interpreters=True)
 
 
 def test_harden_commands_is_idempotent(tmp_path):

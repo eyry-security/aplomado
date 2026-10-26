@@ -125,6 +125,59 @@ class AplomadoAgent(PinnaceAgent):
         else:
             self._say(f"[pinnace] hit max_turns={self.max_turns}")
 
+        # A scan that exhausts its active-testing budget still deserves a
+        # chance to emit the findings it already confirmed. Ask for a
+        # finish()-only wrap-up turn instead of silently returning nothing.
+        if structured is None and final is None:
+            self._say("[pinnace] turn limit reached — requesting finish payload")
+            messages.append(HumanMessage(content=(
+                "TURN LIMIT REACHED. Do not run any more tests. Call finish() "
+                "exactly once now with your findings JSON. Include every "
+                "confirmed finding and the coverage ledger you have so far."
+            )))
+            for _ in range(2):
+                try:
+                    resp = self.bound.invoke(messages)
+                except Exception as e:  # noqa: BLE001 - keep the scan result
+                    self._say(f"[pinnace] wrap-up model call failed: {e}")
+                    break
+                self._record_usage(resp, "wrapup_turn", usage_records)
+                messages.append(resp)
+                calls = resp.tool_calls or []
+                if not calls:
+                    final = (
+                        resp.content
+                        if isinstance(resp.content, str)
+                        else str(resp.content)
+                    )
+                    break
+                for call in calls:
+                    name = call.get("name", "")
+                    call_id = call.get("id", "")
+                    args = call.get("args", {}) or {}
+                    if name != "finish":
+                        out = (
+                            "error: turn limit reached; only finish() is "
+                            "allowed"
+                        )
+                    else:
+                        tool = self._tools_by_name.get(name)
+                        try:
+                            out = str(tool.invoke(args)) if tool else (
+                                f"error: unknown tool {name!r}"
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            out = f"error: {e}"
+                    messages.append(
+                        ToolMessage(content=out, tool_call_id=call_id, name=name)
+                    )
+                    payload = parse_finish(out)
+                    if payload is not None and structured is None:
+                        structured = payload
+                        self._say("[pinnace] finish() called — done")
+                if structured is not None:
+                    break
+
         if self.session_id:
             path = self.session_store.save(self.session_id, messages)
             self._say(f"[pinnace] session saved to {path}")

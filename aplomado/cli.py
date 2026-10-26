@@ -24,7 +24,13 @@ import sys
 from pinnace import DockerSandbox, LocalSandbox
 
 from . import __version__
-from .scanner import AplomadoError, load_target_file, parse_stdin_record, run_scan
+from .scanner import (
+    AplomadoError,
+    default_sandbox_image,
+    load_target_file,
+    parse_stdin_record,
+    run_scan,
+)
 from .store import resolve_store
 from .events import build_event, resolve_sink
 from .findings import normalize_findings
@@ -74,7 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="allow the local sandbox (dev/tests only)",
     )
     sp.add_argument(
-        "--image", default="python:3.12-slim", help="docker image for the sandbox"
+        "--image", default=default_sandbox_image(),
+        help="docker image for the sandbox (default: aplomado-sandbox:latest)",
     )
     sp.add_argument(
         "--no-net", action="store_true", help="cut sandbox network egress"

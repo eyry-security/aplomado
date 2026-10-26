@@ -12,7 +12,13 @@ from langchain_core.messages import AIMessage, ToolMessage
 from aplomado.cli import build_parser
 from aplomado.findings import SEVERITIES
 from aplomado.fuzz import FFUF_BIN
-from aplomado.scanner import AplomadoError, build_prompt, load_target_file, run_scan
+from aplomado.scanner import (
+    AplomadoError,
+    build_prompt,
+    default_sandbox_image,
+    load_target_file,
+    run_scan,
+)
 from pinnace import LocalSandbox
 from pinnace.sandbox import ExecResult, SandboxError
 from pinnace.session import SessionStore
@@ -225,6 +231,17 @@ def test_max_turns_limits_scan(tmp_path):
     assert env["summary"] == "scan ended without calling finish()"
 
 
+def test_max_turns_gets_finish_wrapup(tmp_path):
+    script = [
+        AIMessage(content="", tool_calls=[_tc("shell", {"command": "echo x"}, 1)]),
+        AIMessage(content="", tool_calls=[_tc("shell", {"command": "echo y"}, 2)]),
+        AIMessage(content="", tool_calls=[_tc("finish", {"result": _FINISH_PAYLOAD}, 3)]),
+    ]
+    env = _scripted_agent(tmp_path, script, max_turns=2)
+    assert env["findings"][0]["title"] == "Server header leaks version"
+    assert env["summary"] == "One issue worth fixing."
+
+
 def test_load_target_file_first_record(tmp_path):
     p = tmp_path / "vedette.jsonl"
     p.write_text(
@@ -285,7 +302,8 @@ def test_cli_parser_defaults():
     args = build_parser().parse_args(["scan", "--target", "https://example.com"])
     assert args.target == "https://example.com"
     assert args.sandbox == "docker"
-    assert args.image == "python:3.12-slim"
+    assert args.image == default_sandbox_image()
+    assert args.image == "aplomado-sandbox:latest"
     assert args.max_turns == 30
     assert args.model is None
     assert args.json is False
@@ -321,8 +339,8 @@ def test_all_finding_severities_valid(tmp_path):
 
 def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
     sb = StubSandbox()
-    sb.exec_scripts[f"test -x ./{FFUF_BIN}"] = ExecResult("", "", 0)
-    sb.exec_scripts[f"./{FFUF_BIN}"] = ExecResult("admin  [Status: 200]\n", "", 0)
+    sb.exec_scripts[f"test -x /usr/local/bin/{FFUF_BIN}"] = ExecResult("", "", 0)
+    sb.exec_scripts[f"{FFUF_BIN} "] = ExecResult("admin  [Status: 200]\n", "", 0)
     # WritePolicySandbox symlink check: no symlinks in the stub
     sb.exec_scripts["[ -L"] = ExecResult("", "", 1)
     env = run_scan(
@@ -343,7 +361,7 @@ def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
         session_store=SessionStore(tmp_path / "sessions"),
         log=lambda *a: None,
     )
-    runs = [c for c in sb.commands if c.startswith(f"./{FFUF_BIN} ")]
+    runs = [c for c in sb.commands if c.startswith(f"{FFUF_BIN} ")]
     assert len(runs) == 1
     assert "example.com/FUZZ" in runs[0]
     assert env["findings"][0]["title"] == "Server header leaks version"

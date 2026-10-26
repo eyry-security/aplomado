@@ -51,8 +51,8 @@ class StubSandbox:
 
 def test_katana_tool_parses_jsonl_to_urls():
     sb = StubSandbox()
-    sb.exec_scripts["test -x ./katana"] = ExecResult("", "", 0)
-    sb.exec_scripts["./katana"] = ExecResult(
+    sb.exec_scripts["test -x /usr/local/bin/katana"] = ExecResult("", "", 0)
+    sb.exec_scripts["katana "] = ExecResult(
         '{"request":{"endpoint":"https://example.com/a"}}\n'
         '{"request":{"endpoint":"https://example.com/b"}}\n'
         '{"request":{"endpoint":"https://example.com/a"}}\n',
@@ -65,13 +65,13 @@ def test_katana_tool_parses_jsonl_to_urls():
     assert "[3 unique URLs]" not in out
     assert "[2 unique URLs]" in out
     assert "https://example.com/a" in out
-    assert any(c.startswith("./katana") and "-d 2" in c for c in sb.commands)
+    assert any(c.startswith("katana ") and "-d 2" in c for c in sb.commands)
 
 
 def test_katana_depth_clamped():
     sb = StubSandbox()
-    sb.exec_scripts["test -x ./katana"] = ExecResult("", "", 0)
-    sb.exec_scripts["./katana"] = ExecResult("", "", 0)
+    sb.exec_scripts["test -x /usr/local/bin/katana"] = ExecResult("", "", 0)
+    sb.exec_scripts["katana "] = ExecResult("", "", 0)
     tool = katana_tool(sb)
     tool.invoke({"url": "https://example.com", "depth": 99})
     assert any("-d 5" in c for c in sb.commands)
@@ -79,8 +79,8 @@ def test_katana_depth_clamped():
 
 def test_katana_injects_cookies():
     sb = StubSandbox()
-    sb.exec_scripts["test -x ./katana"] = ExecResult("", "", 0)
-    sb.exec_scripts["./katana"] = ExecResult("", "", 0)
+    sb.exec_scripts["test -x /usr/local/bin/katana"] = ExecResult("", "", 0)
+    sb.exec_scripts["katana "] = ExecResult("", "", 0)
     jar = CookieJar()
     jar.set_cookies("session=abc123")
     tool = katana_tool(sb, jar)
@@ -90,7 +90,7 @@ def test_katana_injects_cookies():
 
 def test_hakrawler_tool_merges_plain_output():
     sb = StubSandbox()
-    sb.exec_scripts["test -x ./hakrawler"] = ExecResult("", "", 0)
+    sb.exec_scripts["test -x /usr/local/bin/hakrawler"] = ExecResult("", "", 0)
     sb.exec_scripts["echo "] = ExecResult(
         "https://example.com/x\nhttps://example.com/y\n", "", 0
     )
@@ -111,32 +111,32 @@ def test_crawl_tools_returns_both():
 
 def test_nuclei_uses_curated_scope():
     sb = StubSandbox()
-    sb.exec_scripts["test -x ./nuclei"] = ExecResult("", "", 0)
-    sb.exec_scripts["./nuclei -u"] = ExecResult(
+    sb.exec_scripts["test -x /usr/local/bin/nuclei"] = ExecResult("", "", 0)
+    sb.exec_scripts["test -d /opt/nuclei-templates"] = ExecResult("", "", 0)
+    sb.exec_scripts["nuclei -u"] = ExecResult(
         '{"template-id":"cve-2024-1"}\n', "", 0
     )
     tool = nuclei_tool(sb)
     out = tool.invoke({"target": "https://example.com"})
-    cmd = next(c for c in sb.commands if c.startswith("./nuclei -u"))
-    assert "-t cves/" in cmd
-    assert "-t exposures/" in cmd
-    assert "-t misconfiguration/" in cmd
-    assert "-t takeovers/" in cmd
+    cmd = next(c for c in sb.commands if c.startswith("nuclei -u"))
+    assert "-t /opt/nuclei-templates/http/cves/" in cmd
+    assert "-t /opt/nuclei-templates/http/exposures/" in cmd
+    assert "-t /opt/nuclei-templates/http/misconfiguration/" in cmd
+    assert "-t /opt/nuclei-templates/http/takeovers/" in cmd
     assert "-severity critical,high" in cmd
     assert "-exclude-tags dos,fuzz" in cmd
     assert "-rate-limit 50" in cmd
     assert "[1 findings]" in out
+    assert not any("update-templates" in c for c in sb.commands)
 
 
-def test_nuclei_updates_templates_on_first_use():
+def test_nuclei_missing_binary_never_bootstraps():
     sb = StubSandbox()
-    sb.exec_scripts["test -x ./nuclei"] = ExecResult("", "", 1)  # missing
-    sb.exec_scripts["python3 -c"] = ExecResult("", "", 0)
-    sb.exec_scripts["./nuclei -update-templates"] = ExecResult("", "", 0)
-    sb.exec_scripts["./nuclei -u"] = ExecResult("", "", 0)
-    tool = nuclei_tool(sb)
-    tool.invoke({"target": "https://example.com"})
-    assert any("-update-templates" in c for c in sb.commands)
+    sb.exec_scripts["test -x /usr/local/bin/nuclei"] = ExecResult("", "", 1)
+    out = nuclei_tool(sb).invoke({"target": "https://example.com"})
+    assert out.startswith("error:")
+    assert "not installed" in out
+    assert not any("python3 -c" in c or "urlretrieve" in c for c in sb.commands)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ def test_nuclei_updates_templates_on_first_use():
 
 def test_dalfox_pipe_mode():
     sb = StubSandbox()
-    sb.exec_scripts["test -x ./dalfox"] = ExecResult("", "", 0)
+    sb.exec_scripts["test -x /usr/local/bin/dalfox"] = ExecResult("", "", 0)
     sb.exec_scripts["echo "] = ExecResult(
         '{"vulnerable": true}\n', "", 0
     )
@@ -167,7 +167,7 @@ def test_sqli_no_indicator_no_sqlmap():
     out = tool.invoke({"url": "https://example.com/item", "param": "id"})
     assert "no indicator" in out
     assert "sqlmap NOT run" in out
-    assert not any("sqlmap.py" in c for c in sb.commands)
+    assert not any(c.startswith("sqlmap ") for c in sb.commands)
 
 
 def test_sqli_error_indicator_escalates():
@@ -177,9 +177,9 @@ def test_sqli_error_indicator_escalates():
         sb.commands.append(cmd)
         if "id='" in cmd:
             return ExecResult("You have an error in your SQL syntax", "", 0)
-        if "sqlmap" in cmd and "test -x" in cmd:
+        if "test -x /usr/local/bin/sqlmap" in cmd:
             return ExecResult("", "", 0)
-        if "sqlmap.py" in cmd:
+        if cmd.startswith("sqlmap "):
             return ExecResult("sqlmap identified DBMS: MySQL", "", 0)
         return ExecResult("same body", "", 0)
 
@@ -188,7 +188,7 @@ def test_sqli_error_indicator_escalates():
     out = tool.invoke({"url": "https://example.com/item", "param": "id"})
     assert "SQL error string disclosed" in out
     assert "escalating to targeted sqlmap" in out
-    assert any("sqlmap.py" in c and "-p" in c for c in sb.commands)
+    assert any(c.startswith("sqlmap ") and "-p" in c for c in sb.commands)
     # Proof limited: --banner, no --dump
     assert not any("--dump" in c for c in sb.commands)
 
@@ -202,9 +202,8 @@ def test_discover_params_reports_live_ones():
 
     def fake_exec(cmd, timeout=120.0):
         sb.commands.append(cmd)
-        if "debug=x" in cmd:
-            return ExecResult("200 5000", "", 0)
-        return ExecResult("200 1000", "", 0)
+        body = "x" * (5000 if "debug=x" in cmd else 1000)
+        return ExecResult(f"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n{body}", "", 0)
 
     sb.exec = fake_exec
     tool = param_discovery_tool(sb)
