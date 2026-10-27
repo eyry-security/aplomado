@@ -18,6 +18,8 @@ from .events import EventSink, NullSink, build_event
 from .write_policy import harden_sandbox
 from .command_policy import harden_commands
 from .scratchpad import scratchpad_tools
+from .todos import todo_tools
+from .subagents import SubAgentRunner, subagent_tools
 from .auth import CookieJar, auth_tools
 from .crawl import crawl_tools
 from .nuclei import nuclei_tool
@@ -169,6 +171,7 @@ def run_scan(
     prompt_pack: PromptPack | None = None,
     thinking: str | None = None,
     log=None,
+    trace=None,
 ) -> dict:
     """Run one scan and return the normalized findings envelope.
 
@@ -180,6 +183,9 @@ def run_scan(
     prompt_pack: versioned system/run prompts (the default pack if None).
     thinking: opt-in reasoning narration: ``"compact"`` or ``"verbose"``.
         Reasoning is sent only to ``log`` and is bounded in both modes.
+    trace: optional callable receiving structured sub-agent trace events.
+        Child turns and tool calls also arrive through ``log`` tagged with the
+        sub-agent id.
     """
     prompts = prompt_pack or get_prompt_pack()
     effective_log = log or (lambda *args: None)
@@ -192,17 +198,30 @@ def run_scan(
         sandbox = _default_sandbox()
         own_sandbox = True
     # Harden the sandbox: writes jailed to scratch/, sensitive paths blocked,
-    # commands restricted to allowlist.
+    # and command execution time-capped.
     sandbox = harden_commands(harden_sandbox(sandbox))
+    base_tools = (
+        [ffuf_tool(sandbox)]
+        + _bughunter_tools(sandbox)
+        + scratchpad_tools(lambda: sandbox)
+        + todo_tools(lambda: sandbox)
+    )
+    # Children get the standard toolset without the delegation tools, so
+    # delegation is depth-1 only. They share this run's sandbox/workdir.
+    subagent_runner = SubAgentRunner(
+        model=model,
+        sandbox=sandbox,
+        tools=base_tools,
+        system_prompt=prompts.system_prompt,
+        log=effective_log,
+        trace=trace,
+        thinking=thinking,
+    )
     try:
         agent = PinnaceAgent(
             model=model,
             sandbox=sandbox,
-            tools=(
-                [ffuf_tool(sandbox)]
-                + _bughunter_tools(sandbox)
-                + scratchpad_tools(lambda: sandbox)
-            ),
+            tools=base_tools + subagent_tools(subagent_runner),
             system_prompt=prompts.system_prompt,
             max_turns=max_turns,
             session_id=session_id,
