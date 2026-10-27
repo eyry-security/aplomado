@@ -63,7 +63,9 @@ async function waitForDevTools(profileDir, deadline) {
       const port = Number(lines[0]);
       const wsPath = (lines[1] || '').trim();
       if (port > 0 && wsPath) {
-        const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+        const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+          signal: AbortSignal.timeout(2000),
+        });
         if (response.ok) return { port, wsPath };
         lastError = `devtools HTTP ${response.status}`;
       }
@@ -88,6 +90,7 @@ async function ensureChrome(stateDir, timeoutMs) {
     try {
       const response = await fetch(
         `http://127.0.0.1:${existing.port}/json/version`,
+        { signal: AbortSignal.timeout(2000) },
       );
       if (response.ok) return existing;
     } catch {}
