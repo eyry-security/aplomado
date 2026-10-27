@@ -20,7 +20,7 @@ from aplomado.scanner import (
     run_scan,
 )
 from pinnace import LocalSandbox
-from pinnace.sandbox import ExecResult, SandboxError
+from pinnace.sandbox import DockerSandbox, ExecResult, SandboxError
 from pinnace.session import SessionStore
 from test_fuzz import StubSandbox
 
@@ -338,7 +338,10 @@ def test_all_finding_severities_valid(tmp_path):
 
 
 def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
-    sb = StubSandbox()
+    class IsolatedStubSandbox(StubSandbox, DockerSandbox):
+        pass
+
+    sb = IsolatedStubSandbox()
     sb.exec_scripts[f"test -x /usr/local/bin/{FFUF_BIN}"] = ExecResult("", "", 0)
     sb.exec_scripts[f"{FFUF_BIN} "] = ExecResult("admin  [Status: 200]\n", "", 0)
     # WritePolicySandbox symlink check: no symlinks in the stub
