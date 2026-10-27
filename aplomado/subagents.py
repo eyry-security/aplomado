@@ -156,7 +156,7 @@ class SubAgentRunner:
             subagent_id,
             "started",
             label=label,
-            task=task.strip(),
+            task=task.strip()[:500],
             max_turns=budget,
         )
         self._relay_log(
