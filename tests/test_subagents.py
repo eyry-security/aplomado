@@ -251,6 +251,7 @@ def test_elide_returns_only_the_extracted_answer(tmp_path):
         and e["summary"] == "admin username is root"
         for e in trace
     )
+    assert all("row data" not in json.dumps(event) for event in trace)
 
 
 def test_elide_reads_a_scratch_file_without_returning_it(tmp_path):

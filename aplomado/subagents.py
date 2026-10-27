@@ -140,6 +140,7 @@ class SubAgentRunner:
         max_turns: int | None = DEFAULT_SUBAGENT_TURNS,
         label: str = "delegate",
         depth: int = 0,
+        trace_task: str | None = None,
     ) -> str:
         """Run one child agent and return its summary text."""
         if depth >= MAX_SUBAGENT_DEPTH:
@@ -151,18 +152,19 @@ class SubAgentRunner:
         except ValueError as exc:
             return f"error: {exc}"
 
+        display = (trace_task if trace_task is not None else task.strip())
         subagent_id = self._next_id()
         self._emit(
             subagent_id,
             "started",
             label=label,
-            task=task.strip()[:500],
+            task=display[:500],
             max_turns=budget,
         )
         self._relay_log(
             subagent_id,
             f"[pinnace] sub-agent {subagent_id} started ({label}, "
-            f"max {budget} turns): {task.strip()[:200]}",
+            f"max {budget} turns): {display[:200]}",
         )
 
         try:
@@ -224,7 +226,11 @@ class SubAgentRunner:
             "to the QUESTION; do not copy the raw source or unrelated bulk.\n\n"
             f"QUESTION\n{question.strip()}\n\nSOURCE\n{text}"
         )
-        return self.run(task, label="elide")
+        return self.run(
+            task,
+            label="elide",
+            trace_task=f"output elision: {question.strip()}",
+        )
 
 
 def delegate_task_tool(runner: SubAgentRunner) -> BaseTool:
