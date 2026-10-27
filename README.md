@@ -178,6 +178,35 @@ The policy applies to the structured `write_file` tool. The sandbox's command
 runner is unchanged; command-execution restrictions are a separate hardening
 layer. Docker remains the default for untrusted model actions.
 
+## Authenticated browser and screenshots
+
+Every scan shares one canonical cookie jar at `scratch/cookies.txt` — the same
+Netscape jar curl writes with `-c` and reads with `-b`. The bug-hunter tools
+inject that session into their requests, and the browser tools use it too, so
+the shell, scanners, screenshots, and headless Chrome are one session.
+
+- `screenshot(url, full_page=true)` loads the page in headless Chrome with the
+  jar's cookies set for the target host first, then writes a PNG under
+  `scratch/shots/` and returns the path, page title, and final URL. If the
+  final URL is a login page it says auth likely expired; re-login through the
+  jar and retry. The path is evidence you can attach to a finding.
+- `browser_auth(url)` explicitly loads the jar into the browser. `navigate_page`
+  also does this automatically; cookie changes made by the browser (rotation,
+  new session cookies) are written back to `scratch/cookies.txt`.
+- The standard Chrome DevTools MCP surface is registered as agent tools:
+  `navigate_page`, `evaluate_script`, `take_snapshot`, console/network readers,
+  `click`, `fill`, and related navigation/input actions. The browser is for
+  JS-heavy work — DOM XSS verification, SPA route discovery, rendered-form
+  inspection — not a replacement for the HTTP and scanner tools. Page bodies,
+  DOM snapshots, and console/network dumps follow the same large-output buffer
+  rule as every other tool.
+
+The sandbox image ships Node, Chromium, and `chrome-devtools-mcp` at build
+time; no browser component is downloaded during a scan. Rebuild
+`aplomado-sandbox:latest` from this Dockerfile to pick them up. One Chrome
+instance persists for the whole run and every browser action is bounded by the
+same per-command timeout as the rest of the toolset.
+
 ## The Eyry suite
 
 - **Vedette**: fast, multi-threaded HTTP prober (Rust) — feeds Aplomado targets

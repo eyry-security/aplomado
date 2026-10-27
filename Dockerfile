@@ -8,10 +8,12 @@ ARG FFUF_VERSION=2.1.0
 ARG DALFOX_VERSION=3.2.4
 ARG KATANA_VERSION=1.1.0
 ARG SQLMAP_VERSION=1.10.10
+ARG NODE_VERSION=22.11.0
+ARG CHROME_DEVTOOLS_MCP_VERSION=1.12.0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       bash ca-certificates curl dnsutils openssl unzip tar \
+       bash ca-certificates chromium curl dnsutils openssl unzip tar xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
@@ -33,6 +35,25 @@ RUN set -eux; \
     tar -xzf "$tmp/dalfox.tar.gz" -C "$tmp"; \
     install -m 0755 "$tmp/dalfox-v${DALFOX_VERSION}-linux-x86_64/dalfox" /usr/local/bin/dalfox; \
     rm -rf "$tmp"
+
+# Headless Chrome + DevTools MCP are part of the image too: scans never fetch
+# Node, Chrome, or the MCP server at runtime.
+RUN set -eux; \
+    tmp="$(mktemp -d)"; \
+    curl -fsSL -o "$tmp/node.tar.xz" \
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"; \
+    tar -xJf "$tmp/node.tar.xz" -C /opt; \
+    ln -sf "/opt/node-v${NODE_VERSION}-linux-x64/bin/node" /usr/local/bin/node; \
+    ln -sf "/opt/node-v${NODE_VERSION}-linux-x64/bin/npm" /usr/local/bin/npm; \
+    ln -sf "/opt/node-v${NODE_VERSION}-linux-x64/bin/npx" /usr/local/bin/npx; \
+    npm install -g "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"; \
+    test -x /usr/local/bin/chrome-devtools-mcp; \
+    rm -rf "$tmp" /root/.npm
+
+ENV APLOMADO_CHROME_BIN=/usr/bin/chromium \
+    CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1 \
+    CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1 \
+    CI=1
 
 RUN pip install --no-cache-dir "sqlmap==${SQLMAP_VERSION}" \
     && mkdir -p /opt/nuclei-templates \

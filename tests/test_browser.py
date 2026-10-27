@@ -303,3 +303,17 @@ def test_mcp_server_registration_config():
     registry = mcp_server_registry()
     assert registry[CHROME_DEVTOOLS_MCP_SERVER]["command"] == "chrome-devtools-mcp"
     assert "--headless" in registry[CHROME_DEVTOOLS_MCP_SERVER]["args"]
+
+
+def test_prompt_packs_steer_browser_use_and_evidence():
+    from aplomado.prompts import get_prompt_pack
+
+    for pack_id in ("recon-v1", "bughunter-v1"):
+        prompt = get_prompt_pack(pack_id).system_prompt
+        assert "screenshot(" in prompt
+        assert "browser_auth(" in prompt
+        assert "navigate_page" in prompt
+        assert "evaluate_script" in prompt
+        assert "BROWSER PURPOSE" in prompt
+        assert "not a replacement" in prompt
+        assert "buffer rule" in prompt
