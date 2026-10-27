@@ -14,7 +14,24 @@ from .prompts import (
 )
 from .scanner import load_target_file, parse_stdin_record, run_scan
 from .buffers import BUFFER_DIR, BUFFER_THRESHOLD, BufferStore, buffer_read_tool
-from .auth import CookieJar, auth_tools
+from .auth import COOKIE_JAR_PATH, CookieJar, auth_tools
+from .mcp import (
+    CHROME_DEVTOOLS_MCP_BIN,
+    CHROME_DEVTOOLS_MCP_SERVER,
+    chrome_devtools_mcp_config,
+    mcp_server_registry,
+)
+from .browser import (
+    BROWSER_STATE_DIR,
+    BrowserError,
+    BrowserSession,
+    DEVTOOLS_TOOL_NAMES,
+    SHOT_DIR,
+    browser_auth_tool,
+    browser_tools,
+    capture_screenshot,
+    screenshot_tool,
+)
 from .crawl import crawl_tools, hakrawler_tool, katana_tool
 from .nuclei import nuclei_tool
 from .xss import dalfox_tool
@@ -70,8 +87,22 @@ __all__ = [
     "resolve_sink",
     "resolve_store",
     "run_scan",
+    "COOKIE_JAR_PATH",
     "CookieJar",
     "auth_tools",
+    "BROWSER_STATE_DIR",
+    "CHROME_DEVTOOLS_MCP_BIN",
+    "CHROME_DEVTOOLS_MCP_SERVER",
+    "chrome_devtools_mcp_config",
+    "mcp_server_registry",
+    "BrowserError",
+    "BrowserSession",
+    "DEVTOOLS_TOOL_NAMES",
+    "SHOT_DIR",
+    "browser_auth_tool",
+    "browser_tools",
+    "capture_screenshot",
+    "screenshot_tool",
     "crawl_tools",
     "hakrawler_tool",
     "katana_tool",

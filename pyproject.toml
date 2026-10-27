@@ -32,4 +32,5 @@ where = ["."]
 include = ["aplomado*"]
 
 [tool.setuptools.package-data]
+aplomado = ["browser_bridge.mjs"]
 "aplomado.wordlists" = ["*.txt", "NOTICE.md"]

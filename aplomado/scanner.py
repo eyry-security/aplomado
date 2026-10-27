@@ -22,6 +22,7 @@ from .todos import todo_tools
 from .buffers import BufferStore, buffer_read_tool
 from .subagents import SubAgentRunner, subagent_tools
 from .auth import CookieJar, auth_tools
+from .browser import browser_tools, screenshot_tool
 from .crawl import crawl_tools
 from .nuclei import nuclei_tool
 from .xss import dalfox_tool
@@ -144,9 +145,11 @@ def _bughunter_tools(sandbox) -> list:
     The jar is shared so a single set_auth_session call propagates to
     every tool that accepts credentials (katana, nuclei, dalfox).
     """
-    jar = CookieJar()
+    jar = CookieJar(sandbox)
     return (
         auth_tools(jar)
+        + [screenshot_tool(sandbox, jar)]
+        + browser_tools(sandbox, jar)
         + crawl_tools(sandbox, jar)
         + [
             nuclei_tool(sandbox, jar),
