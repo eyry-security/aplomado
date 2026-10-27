@@ -8,9 +8,13 @@ from langchain_core.messages import AIMessage, ToolMessage
 from aplomado.command_policy import (
     COMMAND_MAX_BYTES,
     COMMAND_TIMEOUT_SECONDS,
+    DEFAULT_SHELL_TIMEOUT_SECONDS,
+    MAX_SHELL_TIMEOUT_SECONDS,
     CommandPolicyError,
     CommandPolicySandbox,
     harden_commands,
+    resolve_shell_timeout,
+    shell_tool,
     validate_command,
 )
 from aplomado.scanner import run_scan
@@ -105,9 +109,53 @@ def test_rejects_only_empty_and_oversize_commands():
     validate_command("echo " + "x" * (COMMAND_MAX_BYTES - len("echo ")))
 
 
-def test_execution_ceilings_are_unchanged():
+def test_execution_ceilings_match_the_budget():
     assert COMMAND_MAX_BYTES == 16_384
-    assert COMMAND_TIMEOUT_SECONDS == 920.0
+    assert COMMAND_TIMEOUT_SECONDS == 1200.0
+    assert MAX_SHELL_TIMEOUT_SECONDS == COMMAND_TIMEOUT_SECONDS
+    assert DEFAULT_SHELL_TIMEOUT_SECONDS == 120.0
+
+
+def test_shell_timeout_default_is_unchanged():
+    base = SpyDockerSandbox()
+    output = shell_tool(base).invoke({"command": "echo default"})
+
+    assert base.calls == [("echo default", 120.0)]
+    assert "echo default" in output
+
+
+def test_shell_timeout_accepts_explicit_value():
+    base = SpyDockerSandbox()
+    shell_tool(base).invoke(
+        {"command": "nuclei -u https://example.com", "timeout_seconds": 900}
+    )
+
+    assert base.calls == [("nuclei -u https://example.com", 900.0)]
+
+
+def test_shell_timeout_above_ceiling_is_clamped():
+    base = SpyDockerSandbox()
+    shell_tool(base).invoke({"command": "sleep 1", "timeout_seconds": 5000})
+
+    assert base.calls == [("sleep 1", 1200.0)]
+    assert resolve_shell_timeout(5000) == 1200.0
+
+
+def test_shell_timeout_rejects_nonpositive_without_executing():
+    base = SpyDockerSandbox()
+    output = shell_tool(base).invoke({"command": "echo no", "timeout_seconds": 0})
+
+    assert output.startswith("error:")
+    assert base.calls == []
+
+
+def test_command_policy_caps_huge_timeouts_at_1200():
+    base = SpyDockerSandbox()
+    policy = CommandPolicySandbox(base)
+
+    policy.exec("nuclei -u https://example.com", timeout=5000)
+
+    assert base.calls == [("nuclei -u https://example.com", 1200.0)]
 
 
 class SpyDockerSandbox(DockerSandbox):

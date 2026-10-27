@@ -25,7 +25,7 @@ from pinnace.agent import THINKING_LOG_MAX_CHARS, extract_thinking
 from pinnace.compaction import compact_messages, estimate_tokens, needs_compaction
 from pinnace.tools import parse_finish
 
-from .command_policy import SHELL_TOOL_DESCRIPTION
+from .command_policy import shell_tool
 
 
 class AplomadoAgent(PinnaceAgent):
@@ -34,8 +34,13 @@ class AplomadoAgent(PinnaceAgent):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         shell = self._tools_by_name.get("shell")
-        if shell is not None and shell.description != SHELL_TOOL_DESCRIPTION:
-            shell.description = SHELL_TOOL_DESCRIPTION
+        if shell is not None:
+            replacement = shell_tool(self.sandbox)
+            self.tools = [
+                replacement if tool.name == "shell" else tool
+                for tool in self.tools
+            ]
+            self._tools_by_name["shell"] = replacement
             self.bound = self.model.bind_tools(self.tools)
             if self._cache_system:
                 self._add_tools_cache_breakpoint()
@@ -110,10 +115,11 @@ class AplomadoAgent(PinnaceAgent):
                 call_id = call.get("id", "")
                 args = call.get("args", {}) or {}
                 tool = self._tools_by_name.get(name)
+                self._say(f"[pinnace] tool: {name}({str(args)[:120]})")
                 if tool is None:
                     out = f"error: unknown tool {name!r}"
+                    self._say(f"[pinnace] tool-result: {name} -> {out}")
                 else:
-                    self._say(f"[pinnace] tool: {name}({str(args)[:120]})")
                     try:
                         out = str(tool.invoke(args))
                         out_preview = out[:500].replace(chr(10), " ")
