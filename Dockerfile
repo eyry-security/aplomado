@@ -47,6 +47,11 @@ RUN set -eux; \
     ln -sf "/opt/node-v${NODE_VERSION}-linux-x64/bin/npm" /usr/local/bin/npm; \
     ln -sf "/opt/node-v${NODE_VERSION}-linux-x64/bin/npx" /usr/local/bin/npx; \
     npm install -g "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"; \
+    mcp_bin="$(npm prefix -g)/bin/chrome-devtools-mcp"; \
+    test -x "$mcp_bin"; \
+    if [ "$mcp_bin" != "/usr/local/bin/chrome-devtools-mcp" ]; then \
+      ln -sf "$mcp_bin" /usr/local/bin/chrome-devtools-mcp; \
+    fi; \
     test -x /usr/local/bin/chrome-devtools-mcp; \
     rm -rf "$tmp" /root/.npm
 
