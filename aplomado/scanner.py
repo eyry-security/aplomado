@@ -19,6 +19,7 @@ from .write_policy import harden_sandbox
 from .command_policy import harden_commands
 from .scratchpad import scratchpad_tools
 from .todos import todo_tools
+from .buffers import BufferStore, buffer_read_tool
 from .subagents import SubAgentRunner, subagent_tools
 from .auth import CookieJar, auth_tools
 from .crawl import crawl_tools
@@ -206,27 +207,32 @@ def run_scan(
         + scratchpad_tools(lambda: sandbox)
         + todo_tools(lambda: sandbox)
     )
-    # Children get the standard toolset without the delegation tools, so
-    # delegation is depth-1 only. They share this run's sandbox/workdir.
+    # Full tool outputs above the threshold go to scratch/buffers/. Children
+    # get the same store and buffer_read, but cannot delegate further.
+    buffer_store = BufferStore(sandbox, trace=trace, log=effective_log)
+    child_tools = base_tools + [buffer_read_tool(buffer_store)]
     subagent_runner = SubAgentRunner(
         model=model,
         sandbox=sandbox,
-        tools=base_tools,
+        tools=child_tools,
         system_prompt=prompts.system_prompt,
         log=effective_log,
         trace=trace,
         thinking=thinking,
+        buffer_store=buffer_store,
     )
+    buffer_store.describe = subagent_runner.elide
     try:
         agent = PinnaceAgent(
             model=model,
             sandbox=sandbox,
-            tools=base_tools + subagent_tools(subagent_runner),
+            tools=child_tools + subagent_tools(subagent_runner),
             system_prompt=prompts.system_prompt,
             max_turns=max_turns,
             session_id=session_id,
             session_store=session_store,
             log=effective_log,
+            buffer_store=buffer_store,
         )
         if thinking is not None:
             # Keep agent.model concrete for Pinnace capability checks; only observe

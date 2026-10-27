@@ -31,8 +31,9 @@ from .command_policy import shell_tool
 class AplomadoAgent(PinnaceAgent):
     """A PinnaceAgent whose tool-call turns are always fully answered."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, buffer_store=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.buffer_store = buffer_store
         shell = self._tools_by_name.get("shell")
         if shell is not None:
             replacement = shell_tool(self.sandbox)
@@ -121,7 +122,10 @@ class AplomadoAgent(PinnaceAgent):
                     self._say(f"[pinnace] tool-result: {name} -> {out}")
                 else:
                     try:
-                        out = str(tool.invoke(args))
+                        result = tool.invoke(args)
+                        out = str(result)
+                        if self.buffer_store is not None and name != "finish":
+                            out = self.buffer_store.maybe_buffer(name, result)
                         out_preview = out[:500].replace(chr(10), " ")
                         self._say(
                             f"[pinnace] tool-result: {name} -> {out_preview}"

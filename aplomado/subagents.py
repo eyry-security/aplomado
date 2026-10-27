@@ -91,6 +91,7 @@ class SubAgentRunner:
         log: Callable[[str], None] | None = None,
         trace: TraceCallback | None = None,
         thinking: str | None = None,
+        buffer_store=None,
     ) -> None:
         self.model = model
         self.sandbox = sandbox
@@ -99,9 +100,11 @@ class SubAgentRunner:
         self.log = log or (lambda *args: None)
         self.trace = trace
         self.thinking = thinking
+        self.buffer_store = buffer_store
         self._lock = threading.Lock()
         self._counter = 0
         self._semaphore = threading.BoundedSemaphore(MAX_ACTIVE_SUBAGENTS)
+        self._local = threading.local()
 
     def _next_id(self) -> str:
         with self._lock:
@@ -143,7 +146,8 @@ class SubAgentRunner:
         trace_task: str | None = None,
     ) -> str:
         """Run one child agent and return its summary text."""
-        if depth >= MAX_SUBAGENT_DEPTH:
+        active_depth = getattr(self._local, "depth", 0)
+        if depth >= MAX_SUBAGENT_DEPTH or active_depth >= MAX_SUBAGENT_DEPTH:
             return "error: nested delegation is not allowed (depth 1)"
         if not isinstance(task, str) or not task.strip():
             return "error: task must be a non-empty string"
@@ -176,6 +180,7 @@ class SubAgentRunner:
                     system_prompt=self.system_prompt,
                     max_turns=budget,
                     log=lambda msg: self._relay_log(subagent_id, msg),
+                    buffer_store=self.buffer_store,
                 )
                 if self.thinking is not None:
                     agent.bound = ThinkingModel(
@@ -183,7 +188,11 @@ class SubAgentRunner:
                         self.thinking,
                         lambda msg: self._relay_log(subagent_id, msg),
                     )
-                result = agent.run(_child_prompt(task, context))
+                self._local.depth = active_depth + 1
+                try:
+                    result = agent.run(_child_prompt(task, context))
+                finally:
+                    self._local.depth = active_depth
         except Exception as exc:  # noqa: BLE001 - parent sees the failure
             summary = f"error: sub-agent {subagent_id} failed: {exc}"
             self._emit(subagent_id, "failed", error=str(exc))
@@ -208,6 +217,8 @@ class SubAgentRunner:
 
     def elide(self, source: str, question: str) -> str:
         """Answer *question* from *source* without returning the raw source."""
+        if getattr(self._local, "depth", 0) >= MAX_SUBAGENT_DEPTH:
+            return "error: nested delegation is not allowed (depth 1)"
         if not isinstance(question, str) or not question.strip():
             return "error: question must be a non-empty string"
         if not isinstance(source, str):
