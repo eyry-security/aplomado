@@ -25,9 +25,20 @@ from pinnace.agent import THINKING_LOG_MAX_CHARS, extract_thinking
 from pinnace.compaction import compact_messages, estimate_tokens, needs_compaction
 from pinnace.tools import parse_finish
 
+from .command_policy import SHELL_TOOL_DESCRIPTION
+
 
 class AplomadoAgent(PinnaceAgent):
     """A PinnaceAgent whose tool-call turns are always fully answered."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        shell = self._tools_by_name.get("shell")
+        if shell is not None and shell.description != SHELL_TOOL_DESCRIPTION:
+            shell.description = SHELL_TOOL_DESCRIPTION
+            self.bound = self.model.bind_tools(self.tools)
+            if self._cache_system:
+                self._add_tools_cache_breakpoint()
 
     def run(self, prompt: str) -> AgentResult:
         messages: list[BaseMessage] = []
