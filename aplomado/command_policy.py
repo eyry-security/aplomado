@@ -9,20 +9,26 @@ command substitution all work. It only enforces the execution-safety limits
 
 from __future__ import annotations
 
+from langchain_core.tools import BaseTool, StructuredTool
 from pinnace import DockerSandbox, ExecResult, PinnaceError, Sandbox, SandboxError
+from pinnace.tool_policy import ToolPolicyError, check_shell
+from pinnace.tools import _format_exec
 
 COMMAND_MAX_BYTES = 16_384
 # Ceiling for any single sandbox command. The model-facing shell tool keeps its
-# own 120s default; long-running internal scanners (nuclei/dalfox/sqlmap) pass
-# explicit timeouts up to 900s and must not be silently cut off at 60s.
-COMMAND_TIMEOUT_SECONDS = 920.0
+# own 120s default but may request more per call; long-running internal scanners
+# (nuclei/dalfox/sqlmap) pass explicit timeouts up to the same ceiling.
+COMMAND_TIMEOUT_SECONDS = 1200.0
+DEFAULT_SHELL_TIMEOUT_SECONDS = 120.0
+MAX_SHELL_TIMEOUT_SECONDS = COMMAND_TIMEOUT_SECONDS
 
 SHELL_TOOL_DESCRIPTION = (
     "Run commands in a full bash shell inside an isolated container. Shell "
     "operators (&&, ||, ;, pipes, redirects, subshells) and command substitution "
     "work, and any binary present in the image may be run. The workdir persists "
     "between calls; files written under scratch/ persist for the run. Returns "
-    "stdout, stderr, and exit code."
+    "stdout, stderr, and exit code. timeout_seconds defaults to 120 and may be "
+    "raised up to 1200 for long-running commands."
 )
 
 
@@ -56,6 +62,49 @@ def validate_command(command: str) -> None:
         raise CommandPolicyError(
             f"command is {size} bytes; limit is {COMMAND_MAX_BYTES} bytes"
         )
+
+
+def resolve_shell_timeout(timeout_seconds: float | None = None) -> float:
+    """Return a valid per-command timeout, clamped to the 1200s ceiling."""
+    if timeout_seconds is None:
+        return DEFAULT_SHELL_TIMEOUT_SECONDS
+    if isinstance(timeout_seconds, bool):
+        raise CommandPolicyError("timeout_seconds must be a number")
+    try:
+        timeout = float(timeout_seconds)
+    except (TypeError, ValueError) as exc:
+        raise CommandPolicyError("timeout_seconds must be a number") from exc
+    if timeout <= 0:
+        raise CommandPolicyError("timeout_seconds must be positive")
+    return min(timeout, MAX_SHELL_TIMEOUT_SECONDS)
+
+
+def shell_tool(sandbox: Sandbox) -> BaseTool:
+    """Build the model-facing shell tool with a per-call timeout argument."""
+
+    def shell(
+        command: str,
+        timeout_seconds: float = DEFAULT_SHELL_TIMEOUT_SECONDS,
+    ) -> str:
+        """Run a bash command in the isolated sandbox and return its output.
+
+        timeout_seconds defaults to 120 and is capped at 1200 seconds.
+        """
+        try:
+            check_shell(command)
+            timeout = resolve_shell_timeout(timeout_seconds)
+            result = sandbox.exec(command, timeout=timeout)
+        except (ToolPolicyError, CommandPolicyError) as exc:
+            return f"error: {exc}"
+        except Exception as exc:  # noqa: BLE001 - model sees execution failures
+            return f"error: {exc}"
+        return _format_exec(command, result)
+
+    return StructuredTool.from_function(
+        shell,
+        name="shell",
+        description=SHELL_TOOL_DESCRIPTION,
+    )
 
 
 class CommandPolicySandbox(Sandbox):
