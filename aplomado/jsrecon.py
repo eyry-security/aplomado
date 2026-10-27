@@ -18,6 +18,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
+from .buffers import FullOutput
 
 MAX_JSRECON_OUTPUT = 25_000
 MAX_JS_FILES = 20
@@ -111,8 +112,10 @@ def js_recon_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> Base
         )
         text = "\n".join(out)
         if len(text) > MAX_JSRECON_OUTPUT:
-            text = text[:MAX_JSRECON_OUTPUT] + (
-                f"\n…[truncated at {MAX_JSRECON_OUTPUT} chars]"
+            return FullOutput(
+                text[:MAX_JSRECON_OUTPUT]
+                + f"\n…[truncated at {MAX_JSRECON_OUTPUT} chars]",
+                full=text,
             )
         return text
 

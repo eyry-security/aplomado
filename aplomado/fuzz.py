@@ -14,6 +14,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pinnace.sandbox import Sandbox
 
 from .binaries import require_binary
+from .buffers import FullOutput
 
 FFUF_VERSION = "v2.1.0"
 FFUF_BIN = "ffuf"
@@ -138,7 +139,11 @@ def ffuf_tool(sandbox: Sandbox) -> BaseTool:
         if result.stderr.strip():
             out += f"\n[stderr]\n{result.stderr}"
         if len(out) > MAX_FFUF_OUTPUT:
-            out = out[:MAX_FFUF_OUTPUT] + f"\n…[truncated at {MAX_FFUF_OUTPUT} chars]"
+            return FullOutput(
+                out[:MAX_FFUF_OUTPUT]
+                + f"\n…[truncated at {MAX_FFUF_OUTPUT} chars]",
+                full=out,
+            )
         return out
 
     return StructuredTool.from_function(

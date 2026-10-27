@@ -20,6 +20,7 @@ from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
 from .binaries import require_binary
+from .buffers import FullOutput
 
 SQLMAP_BIN = "sqlmap"
 MAX_SQLI_OUTPUT = 20_000
@@ -144,7 +145,11 @@ def sqli_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTool
             return "\n".join(log) + f"\nerror: sqlmap run failed: {e}"
         out = "\n".join(log) + f"\n[sqlmap exit {result.exit_code}]\n{result.stdout}"
         if len(out) > MAX_SQLI_OUTPUT:
-            out = out[:MAX_SQLI_OUTPUT] + f"\n…[truncated at {MAX_SQLI_OUTPUT} chars]"
+            return FullOutput(
+                out[:MAX_SQLI_OUTPUT]
+                + f"\n…[truncated at {MAX_SQLI_OUTPUT} chars]",
+                full=out,
+            )
         return out
 
     return StructuredTool.from_function(

@@ -18,6 +18,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
+from .buffers import FullOutput
 
 # Common hidden-parameter candidates (debug, admin, pagination, SSRF sinks…).
 PARAM_WORDLIST = [
@@ -92,8 +93,10 @@ def param_discovery_tool(
             f"[{len(hits)} live parameters]\n" + "\n".join(hits)
         )
         if len(out) > MAX_PARAMS_OUTPUT:
-            out = out[:MAX_PARAMS_OUTPUT] + (
-                f"\n…[truncated at {MAX_PARAMS_OUTPUT} chars]"
+            return FullOutput(
+                out[:MAX_PARAMS_OUTPUT]
+                + f"\n…[truncated at {MAX_PARAMS_OUTPUT} chars]",
+                full=out,
             )
         return out
 

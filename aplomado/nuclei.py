@@ -20,6 +20,7 @@ from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
 from .binaries import require_binary
+from .buffers import FullOutput
 
 NUCLEI_VERSION = "v3.3.9"
 NUCLEI_BIN = "nuclei"
@@ -99,8 +100,10 @@ def nuclei_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTo
             f"[{len(lines)} findings]\n" + "\n".join(lines)
         )
         if len(out) > MAX_NUCLEI_OUTPUT:
-            out = out[:MAX_NUCLEI_OUTPUT] + (
-                f"\n…[truncated at {MAX_NUCLEI_OUTPUT} chars]"
+            return FullOutput(
+                out[:MAX_NUCLEI_OUTPUT]
+                + f"\n…[truncated at {MAX_NUCLEI_OUTPUT} chars]",
+                full=out,
             )
         return out
 

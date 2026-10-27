@@ -19,6 +19,7 @@ from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
 from .binaries import require_binary
+from .buffers import FullOutput
 
 KATANA_VERSION = "v1.1.0"
 KATANA_BIN = "katana"
@@ -43,7 +44,10 @@ def _auth_flags(cookie_jar: CookieJar | None) -> str:
 
 def _cap(out: str, limit: int = MAX_CRAWL_OUTPUT) -> str:
     if len(out) > limit:
-        out = out[:limit] + f"\n…[truncated at {limit} chars]"
+        return FullOutput(
+            out[:limit] + f"\n…[truncated at {limit} chars]",
+            full=out,
+        )
     return out
 
 

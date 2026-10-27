@@ -15,6 +15,7 @@ from pinnace.sandbox import Sandbox
 
 from .auth import CookieJar
 from .binaries import require_binary
+from .buffers import FullOutput
 
 DALFOX_VERSION = "v3.2.4"
 DALFOX_BIN = "dalfox"
@@ -60,8 +61,10 @@ def dalfox_tool(sandbox: Sandbox, cookie_jar: CookieJar | None = None) -> BaseTo
         if result.stderr.strip():
             out += f"\n[stderr]\n{result.stderr.strip()[:500]}"
         if len(out) > MAX_DALFOX_OUTPUT:
-            out = out[:MAX_DALFOX_OUTPUT] + (
-                f"\n…[truncated at {MAX_DALFOX_OUTPUT} chars]"
+            return FullOutput(
+                out[:MAX_DALFOX_OUTPUT]
+                + f"\n…[truncated at {MAX_DALFOX_OUTPUT} chars]",
+                full=out,
             )
         return out
 
