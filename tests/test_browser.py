@@ -1,7 +1,5 @@
 """Tests for the authenticated screenshot and DevTools-MCP browser tools."""
 
-import json
-
 from langchain_core.messages import AIMessage
 
 from aplomado.auth import COOKIE_JAR_PATH, CookieJar, format_cookie_jar
@@ -18,7 +16,6 @@ from aplomado.browser import (
 )
 from aplomado.scanner import run_scan
 from pinnace import LocalSandbox
-from pinnace.sandbox import ExecResult
 
 
 class StubSandbox:
@@ -28,6 +25,8 @@ class StubSandbox:
 
     def exec(self, cmd, timeout=120.0):
         self.commands.append((cmd, timeout))
+        from pinnace.sandbox import ExecResult
+
         return ExecResult("", "", 0)
 
     def read_file(self, path):
