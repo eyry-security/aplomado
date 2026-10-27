@@ -298,6 +298,7 @@ def test_mcp_server_registration_config():
     assert config["name"] == CHROME_DEVTOOLS_MCP_SERVER
     assert config["command"] == "chrome-devtools-mcp"
     assert "--headless" in config["args"]
+    assert "--no-page-id-routing" in config["args"]
     assert "--browserUrl" in config["args"]
     assert "http://127.0.0.1:9222" in config["args"]
     registry = mcp_server_registry()

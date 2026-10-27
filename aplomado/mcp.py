@@ -27,6 +27,7 @@ def chrome_devtools_mcp_config(
     """
     args = [
         CHROME_DEVTOOLS_MCP_BIN,
+        "--no-page-id-routing",
         "--no-usage-statistics",
         "--no-performance-crux",
     ]

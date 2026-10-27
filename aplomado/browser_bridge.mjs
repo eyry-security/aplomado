@@ -241,12 +241,21 @@ async function setCookies(cdp, sessionId, cookies, url) {
 }
 
 async function allCookies(cdp, page) {
+  const sessionId = page && page.sessionId ? page.sessionId : undefined;
   try {
-    const result = await cdp.send('Storage.getCookies');
-    if (Array.isArray(result.cookies)) return result.cookies;
+    const result = await cdp.send('Network.getAllCookies', {}, sessionId);
+    if (Array.isArray(result.cookies) && result.cookies.length) {
+      return result.cookies;
+    }
   } catch {}
   try {
-    const result = await cdp.send('Network.getCookies', {}, page.sessionId);
+    const result = await cdp.send('Storage.getCookies', {}, sessionId);
+    if (Array.isArray(result.cookies) && result.cookies.length) {
+      return result.cookies;
+    }
+  } catch {}
+  try {
+    const result = await cdp.send('Network.getCookies', {}, sessionId);
     if (Array.isArray(result.cookies)) return result.cookies;
   } catch {}
   return [];
@@ -413,6 +422,7 @@ async function mcp(payload) {
         '--headless',
         '--browserUrl',
         `http://127.0.0.1:${state.port}`,
+        '--no-page-id-routing',
         '--no-usage-statistics',
         '--no-performance-crux',
       ],
@@ -445,7 +455,12 @@ async function mcp(payload) {
         name: payload.tool,
         arguments: payload.arguments || {},
       });
-      const cookies = await allCookies(cdp, { sessionId: null });
+      let cookies = [];
+      try {
+        const inspection = await openPage(cdp);
+        cookies = await allCookies(cdp, inspection);
+        await closePage(cdp, inspection);
+      } catch {}
       if (result.isError) {
         return {
           ok: false,
