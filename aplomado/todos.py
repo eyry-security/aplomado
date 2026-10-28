@@ -62,15 +62,37 @@ def save_todos(sandbox: SandboxProvider, items: list[dict]) -> None:
     )
 
 
+def _format_item(index: int, item: dict) -> str:
+    line = f"{index}. [{item['status']}] {item['text']}"
+    if item.get("note"):
+        line += f" — {item['note']}"
+    return line
+
+
 def format_todos(items: list[dict]) -> str:
     if not items:
         return "todos: (empty)"
     lines = [f"todos ({TODOS_PATH}):"]
     for index, item in enumerate(items, 1):
-        line = f"{index}. [{item['status']}] {item['text']}"
-        if item.get("note"):
-            line += f" — {item['note']}"
-        lines.append(line)
+        lines.append(_format_item(index, item))
+    return "\n".join(lines)
+
+
+def _todo_counts(items: list[dict]) -> str:
+    done = sum(1 for item in items if item["status"] == "done")
+    skipped = sum(1 for item in items if item["status"] == "skipped")
+    open_count = len(items) - done - skipped
+    counts = f"done={done} open={open_count} total={len(items)}"
+    if skipped:
+        counts += f" skipped={skipped}"
+    return counts
+
+
+def _format_todo_delta(items: list[dict], changed: list[int], action: str) -> str:
+    lines = [f"todos: {action} — {_todo_counts(items)}"]
+    for index in changed:
+        lines.append(_format_item(index + 1, items[index]))
+    lines.append(f'Full list: read_file("{TODOS_PATH}")')
     return "\n".join(lines)
 
 
@@ -120,7 +142,7 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
         """Replace the run's todo list with short imperative tasks.
 
         Each item starts pending. The updated list is persisted to
-        scratch/todos.json and shown in the result.
+        scratch/todos.json; the result is only a compact summary.
         """
         try:
             cleaned = [
@@ -133,7 +155,11 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
             save_todos(sandbox, todos)
         except Exception as exc:  # noqa: BLE001 - surface failures to the model
             return f"error: {exc}"
-        return format_todos(todos)
+        return (
+            f"todos: replaced list — {_todo_counts(todos)}\n"
+            "All items reset to pending.\n"
+            f'Full list: read_file("{TODOS_PATH}")'
+        )
 
     def todos_update(
         index_or_text: int | str,
@@ -143,7 +169,7 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
         """Update one todo by 1-based index (0 means first) or by its text.
 
         status is pending, in_progress, done, or skipped. note records a skip
-        reason or a result pointer. The updated list is shown in the result.
+        reason or a result pointer. The result is a compact delta, not the list.
         """
         if status not in TODO_STATUSES:
             return (
@@ -159,7 +185,7 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
             save_todos(sandbox, items)
         except Exception as exc:  # noqa: BLE001 - surface failures to the model
             return f"error: {exc}"
-        return format_todos(items)
+        return _format_todo_delta(items, [index], f"updated #{index + 1}")
 
     return [
         StructuredTool.from_function(
@@ -167,7 +193,8 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
             name="todos_write",
             description=(
                 "Replace the run's todo list with short imperative tasks. "
-                "Persists to scratch/todos.json and returns the current list."
+                "Persists to scratch/todos.json and returns only a compact "
+                "summary; read that file for the full list."
             ),
         ),
         StructuredTool.from_function(
@@ -176,7 +203,8 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
             description=(
                 "Update one todo by 1-based index (0 means first) or by text. "
                 "status: pending, in_progress, done, or skipped; note carries a "
-                "skip reason or result pointer. Returns the current list."
+                "skip reason or result pointer. Returns a compact delta, not "
+                "the full list; read scratch/todos.json for that."
             ),
         ),
     ]

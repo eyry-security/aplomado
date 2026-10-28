@@ -31,8 +31,10 @@ def test_todos_write_update_round_trip_persists(tmp_path):
     output = tools["todos_write"].invoke(
         {"items": ["recon the target", "test the login flow"]}
     )
-    assert "1. [pending] recon the target" in output
-    assert "2. [pending] test the login flow" in output
+    assert "replaced list" in output
+    assert "done=0 open=2 total=2" in output
+    assert "recon the target" not in output
+    assert "test the login flow" not in output
     assert _saved(tmp_path) == [
         {"text": "recon the target", "status": "pending", "note": ""},
         {"text": "test the login flow", "status": "pending", "note": ""},
@@ -109,3 +111,21 @@ def test_todos_write_replaces_and_formats_the_list(tmp_path):
     ]
     assert all(status in TODO_STATUSES for status in TODO_STATUSES)
     assert format_todos([]) == "todos: (empty)"
+
+
+def test_todos_update_delta_is_compact_for_large_list(tmp_path):
+    sandbox, tools = _tools(tmp_path)
+    items = [f"task {n}: " + ("x" * 180) for n in range(1, 26)]
+    tools["todos_write"].invoke({"items": items})
+
+    output = tools["todos_update"].invoke(
+        {"index_or_text": 13, "status": "done", "note": "scratch/result.txt"}
+    )
+
+    assert len(output) < 600
+    assert "done=1 open=24 total=25" in output
+    assert "13. [done] task 13:" in output
+    assert "task 25:" not in output
+    persisted = json.loads(sandbox.read_file(TODOS_PATH))
+    assert len(persisted) == 25
+    assert persisted[12]["status"] == "done"
