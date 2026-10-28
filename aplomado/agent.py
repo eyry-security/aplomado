@@ -84,6 +84,21 @@ def _safe_tail_start(messages: list[BaseMessage], desired: int) -> int:
     return start
 
 
+def _usage_tokens(records: list[dict]) -> int:
+    """Sum input+output tokens across pinnace usage records."""
+    total = 0
+    for record in records or []:
+        usage = record.get("usage") if isinstance(record, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        for key in ("input_tokens", "output_tokens"):
+            try:
+                total += int(usage.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
 def _compact_messages(model, messages, keep_last, on_response=None, log=None):
     """Pinnace-style compaction with a tool-pair-safe tail boundary."""
     if len(messages) <= keep_last + 1:
@@ -123,9 +138,10 @@ def _compact_messages(model, messages, keep_last, on_response=None, log=None):
 class AplomadoAgent(PinnaceAgent):
     """A PinnaceAgent whose tool-call turns are always fully answered."""
 
-    def __init__(self, *args, buffer_store=None, **kwargs) -> None:
+    def __init__(self, *args, buffer_store=None, token_budget=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.buffer_store = buffer_store
+        self.token_budget = token_budget
         shell = self._tools_by_name.get("shell")
         if shell is not None:
             replacement = shell_tool(self.sandbox)
@@ -162,10 +178,18 @@ class AplomadoAgent(PinnaceAgent):
         structured = None
         final: str | None = None
         usage_records: list[dict] = []
+        budget_hit = False
 
         while turns < self.max_turns:
             turns += 1
             messages = repair_tool_pairs(messages)
+            if self.token_budget and _usage_tokens(usage_records) >= self.token_budget:
+                budget_hit = True
+                self._say(
+                    "[pinnace] token budget reached — wrapping up "
+                    f"({_usage_tokens(usage_records)}/{self.token_budget})"
+                )
+                break
             if needs_compaction(messages, self.compaction_tokens):
                 before = estimate_tokens(messages)
                 messages = _compact_messages(
@@ -190,6 +214,12 @@ class AplomadoAgent(PinnaceAgent):
             )
             self._record_usage(resp, "agent_turn", usage_records)
             messages.append(resp)
+            if self.token_budget and _usage_tokens(usage_records) >= self.token_budget:
+                budget_hit = True
+                self._say(
+                    "[pinnace] token budget reached — wrapping up "
+                    f"({_usage_tokens(usage_records)}/{self.token_budget})"
+                )
 
             thinking = extract_thinking(resp)
             if thinking:
@@ -205,6 +235,11 @@ class AplomadoAgent(PinnaceAgent):
                     else str(resp.content)
                 )
                 self._say("[pinnace] no tool calls — done")
+                break
+
+            if budget_hit and not any(
+                    call.get("name") == "finish" for call in calls):
+                self._say("[pinnace] token budget reached — stopping active tests")
                 break
 
             done = False
@@ -247,9 +282,12 @@ class AplomadoAgent(PinnaceAgent):
         # chance to emit the findings it already confirmed. Ask for a
         # finish()-only wrap-up turn instead of silently returning nothing.
         if structured is None and final is None:
-            self._say("[pinnace] turn limit reached — requesting finish payload")
+            reason = "TOKEN BUDGET REACHED" if budget_hit else "TURN LIMIT REACHED"
+            self._say(
+                f"[pinnace] {reason.lower()} — requesting finish payload"
+            )
             messages.append(HumanMessage(content=(
-                "TURN LIMIT REACHED. Do not run any more tests. Call finish() "
+                f"{reason}. Do not run any more tests. Call finish() "
                 "exactly once now with your findings JSON. Include every "
                 "confirmed finding and the coverage ledger you have so far."
             )))
