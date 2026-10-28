@@ -29,6 +29,7 @@ from .xss import dalfox_tool
 from .sqli import sqli_tool
 from .params import param_discovery_tool
 from .jsrecon import js_recon_tool
+from .rawhttp import curl_tool
 
 # Construction point kept patchable for tests and embedders. AplomadoAgent is
 # PinnaceAgent with protocol-safe handling of parallel tool calls.
@@ -148,7 +149,7 @@ def _bughunter_tools(sandbox) -> list:
     jar = CookieJar(sandbox)
     return (
         auth_tools(jar)
-        + [screenshot_tool(sandbox, jar)]
+        + [curl_tool(sandbox, jar), screenshot_tool(sandbox, jar)]
         + browser_tools(sandbox, jar)
         + crawl_tools(sandbox, jar)
         + [
@@ -174,6 +175,7 @@ def run_scan(
     event_sink: EventSink | None = None,
     prompt_pack: PromptPack | None = None,
     thinking: str | None = None,
+    token_budget: int | None = None,
     log=None,
     trace=None,
 ) -> dict:
@@ -190,6 +192,9 @@ def run_scan(
     trace: optional callable receiving structured sub-agent trace events.
         Child turns and tool calls also arrive through ``log`` tagged with the
         sub-agent id.
+    token_budget: optional per-scan token ceiling. When the agent reaches it,
+        it stops launching tests and asks the model for a finish() payload so
+        partial findings are kept. None disables the leash.
     """
     prompts = prompt_pack or get_prompt_pack()
     effective_log = log or (lambda *args: None)
@@ -237,6 +242,11 @@ def run_scan(
             log=effective_log,
             buffer_store=buffer_store,
         )
+        if token_budget is not None:
+            try:
+                agent.token_budget = max(1, int(token_budget))
+            except (TypeError, ValueError):
+                agent.token_budget = None
         if thinking is not None:
             # Keep agent.model concrete for Pinnace capability checks; only observe
             # the final tool-bound invocation layer.
@@ -264,6 +274,28 @@ def run_scan(
         if not result.final:
             ok = False
             error = "scan ended without calling finish()"
+
+    if token_budget is not None:
+        used = 0
+        for record in getattr(result, "usage", None) or []:
+            usage = record.get("usage") if isinstance(record, dict) else None
+            if not isinstance(usage, dict):
+                continue
+            try:
+                used += int(usage.get("input_tokens") or 0)
+                used += int(usage.get("output_tokens") or 0)
+            except (TypeError, ValueError):
+                continue
+        try:
+            limit = max(1, int(token_budget))
+        except (TypeError, ValueError):
+            limit = None
+        if limit is not None:
+            envelope["token_budget"] = {
+                "limit": limit,
+                "used": used,
+                "exhausted": used >= limit,
+            }
 
     if store is not None:
         store.save(envelope)
