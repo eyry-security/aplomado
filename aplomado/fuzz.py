@@ -1,11 +1,13 @@
-"""ffuf content-discovery tool for Aplomado scans.
+"""Content-discovery tool for Aplomado scans.
 
-The Aplomado sandbox image ships the static ffuf binary at /usr/local/bin.
-Tools verify it is present and never download anything at scan time.
+fathom is the preferred engine when a binary is configured (``FATHOM_BIN``)
+or present in the sandbox image; ffuf remains the fallback. Tools verify the
+chosen binary is present and never download anything at scan time.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 
@@ -13,9 +15,12 @@ from langchain_core.tools import BaseTool, StructuredTool
 
 from pinnace.sandbox import Sandbox
 
-from .binaries import require_binary
+from .binaries import binary_path, require_binary
 from .buffers import FullOutput
 
+FATHOM_VERSION = "v0.1.0"
+FATHOM_BIN = "fathom"
+FATHOM_BIN_ENV = "FATHOM_BIN"
 FFUF_VERSION = "v2.1.0"
 FFUF_BIN = "ffuf"
 WORDLIST_NAME = "scratch/_ffuf_default.txt"
@@ -90,6 +95,64 @@ def _ensure_ffuf(sandbox: Sandbox) -> str | None:
     return require_binary(sandbox, FFUF_BIN, label="ffuf")
 
 
+def _fathom_path() -> str:
+    """Return the configured fathom binary, or its image location."""
+    configured = (os.environ.get(FATHOM_BIN_ENV) or "").strip()
+    return configured or binary_path(FATHOM_BIN)
+
+
+def _fathom_available(sandbox: Sandbox) -> bool:
+    """True when the configured/present fathom binary is executable."""
+    path = _fathom_path()
+    probe = (
+        f"test -x {shlex.quote(path)}"
+        if "/" in path
+        else f"command -v {shlex.quote(path)}"
+    )
+    try:
+        result = sandbox.exec(probe, timeout=30.0)
+    except Exception:  # noqa: BLE001 - an unprobeable engine is just absent
+        return False
+    return result.exit_code == 0
+
+
+def _parse_fathom_jsonl(stdout: str) -> list[dict]:
+    """Parse fathom's JSONL stream, keeping only result events."""
+    results: list[dict] = []
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(event, dict) and event.get("type") == "result":
+            results.append(event)
+    return results
+
+
+def _fathom_output(stdout: str) -> str:
+    """Render fathom JSONL results in the familiar ffuf result shape."""
+    lines: list[str] = []
+    for result in _parse_fathom_jsonl(stdout):
+        inputs = result.get("input")
+        if isinstance(inputs, dict):
+            label = "&".join(f"{k}={v}" for k, v in inputs.items())
+        else:
+            label = str(inputs or "")
+        target = result.get("url") or result.get("final_url") or label
+        status = result.get("status", "?")
+        size = result.get("size", "?")
+        words = result.get("words", "?")
+        row_lines = result.get("lines", "?")
+        lines.append(
+            f"{target}  [Status: {status}, Size: {size}, "
+            f"Words: {words}, Lines: {row_lines}]"
+        )
+    return "\n".join(lines) if lines else (stdout or "")
+
+
 def _wordlist_arg(sandbox: Sandbox, wordlist: str) -> tuple[str, str | None]:
     """Resolve the -w argument. Returns (path, None) or ("", error)."""
     if wordlist == "default":
@@ -104,17 +167,18 @@ def _wordlist_arg(sandbox: Sandbox, wordlist: str) -> tuple[str, str | None]:
 
 
 def ffuf_tool(sandbox: Sandbox) -> BaseTool:
-    """Build the ffuf content-discovery tool bound to *sandbox*."""
-    ready = {"binary": False}
+    """Build the content-discovery tool bound to *sandbox*."""
+    ready = {"engine": None, "ffuf_ready": False}
 
     def ffuf(url: str, wordlist: str = "default", extra_args: str = "") -> str:
-        """Run ffuf content discovery against a URL inside the sandbox.
+        """Run content discovery against a URL inside the sandbox.
 
-        The URL must contain the FUZZ keyword (it is appended as /FUZZ when
-        missing). wordlist is "default" for a built-in ~40-entry list of
-        common paths, or a path (relative to the sandbox workdir) to a custom
-        list. extra_args passes extra ffuf flags through; anything looking
-        like shell metacharacters is rejected.
+        fathom is used when available, otherwise ffuf. The URL must contain
+        the FUZZ keyword (it is appended as /FUZZ when missing). wordlist is
+        "default" for a built-in ~40-entry list of common paths, or a path
+        (relative to the sandbox workdir) to a custom list. extra_args passes
+        engine flags through; anything looking like shell metacharacters is
+        rejected.
         """
         bad = _check_extra_args(extra_args)
         if bad:
@@ -123,19 +187,39 @@ def ffuf_tool(sandbox: Sandbox) -> BaseTool:
         wl, err = _wordlist_arg(sandbox, wordlist)
         if err:
             return err
-        if not ready["binary"]:
-            err = _ensure_ffuf(sandbox)
-            if err:
-                return err
-            ready["binary"] = True
-        cmd = f"{FFUF_BIN} -u {shlex.quote(target)} -w {shlex.quote(wl)} -t 40"
-        if extra_args.strip():
-            cmd += f" {extra_args.strip()}"
+        if ready["engine"] is None:
+            ready["engine"] = (
+                "fathom" if _fathom_available(sandbox) else "ffuf"
+            )
+        extra = f" {extra_args.strip()}" if extra_args.strip() else ""
+        if ready["engine"] == "fathom":
+            binary = _fathom_path()
+            cmd = (
+                f"{shlex.quote(binary)} http -u {shlex.quote(target)} "
+                f"-w {shlex.quote(wl)} -t 40 --format jsonl{extra}"
+            )
+            shown = f"{binary} http -u {target} -w {wl}"
+        else:
+            if not ready["ffuf_ready"]:
+                err = _ensure_ffuf(sandbox)
+                if err:
+                    return err
+                ready["ffuf_ready"] = True
+            cmd = (
+                f"{FFUF_BIN} -u {shlex.quote(target)} "
+                f"-w {shlex.quote(wl)} -t 40{extra}"
+            )
+            shown = f"ffuf -u {target} -w {wl}"
         try:
             result = sandbox.exec(cmd, timeout=180.0)
         except Exception as e:  # noqa: BLE001 - surface to the model
-            return f"error: ffuf run failed: {e}"
-        out = f"$ ffuf -u {target} -w {wl}\n[exit {result.exit_code}]\n{result.stdout}"
+            return f"error: {ready['engine']} run failed: {e}"
+        body = (
+            _fathom_output(result.stdout)
+            if ready["engine"] == "fathom"
+            else result.stdout
+        )
+        out = f"$ {shown}\n[exit {result.exit_code}]\n{body}"
         if result.stderr.strip():
             out += f"\n[stderr]\n{result.stderr}"
         if len(out) > MAX_FFUF_OUTPUT:

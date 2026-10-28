@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from aplomado.cli import build_parser
 from aplomado.findings import SEVERITIES
-from aplomado.fuzz import FFUF_BIN
+from aplomado.fuzz import FATHOM_BIN, FFUF_BIN
 from aplomado.scanner import (
     AplomadoError,
     build_prompt,
@@ -342,6 +342,7 @@ def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
         pass
 
     sb = IsolatedStubSandbox()
+    sb.exec_scripts[f"test -x /usr/local/bin/{FATHOM_BIN}"] = ExecResult("", "", 1)
     sb.exec_scripts[f"test -x /usr/local/bin/{FFUF_BIN}"] = ExecResult("", "", 0)
     sb.exec_scripts[f"{FFUF_BIN} "] = ExecResult("admin  [Status: 200]\n", "", 0)
     # WritePolicySandbox symlink check: no symlinks in the stub
