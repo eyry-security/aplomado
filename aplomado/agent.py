@@ -12,8 +12,11 @@ semantics, but answers every call in the turn before honouring ``finish()``.
 
 from __future__ import annotations
 
+import time
+
 from langchain_core.load import dumpd
 from langchain_core.messages import (
+    AIMessage,
     BaseMessage,
     HumanMessage,
     SystemMessage,
@@ -22,10 +25,99 @@ from langchain_core.messages import (
 
 from pinnace import AgentResult, PinnaceAgent
 from pinnace.agent import THINKING_LOG_MAX_CHARS, extract_thinking
-from pinnace.compaction import compact_messages, estimate_tokens, needs_compaction
+from pinnace.compaction import (
+    SUMMARIZE_PROMPT,
+    estimate_tokens,
+    needs_compaction,
+)
 from pinnace.tools import parse_finish
 
 from .command_policy import shell_tool
+from .history import is_tool_pairing_error, repair_tool_pairs
+
+PAIRING_RETRY_DELAYS = (0.25, 0.5, 1.0)
+
+
+def _invoke_with_pairing_repair(model, messages, *, log=None, kind="request"):
+    """Invoke *model* after repairing tool pairing, retrying pairing 400s."""
+    working = repair_tool_pairs(messages)
+    retries = 0
+    while True:
+        try:
+            return model.invoke(working), working
+        except Exception as exc:  # noqa: BLE001 - only retry pairing failures
+            if (
+                not is_tool_pairing_error(exc)
+                or retries >= len(PAIRING_RETRY_DELAYS)
+            ):
+                raise
+            delay = PAIRING_RETRY_DELAYS[retries]
+            retries += 1
+            # The first pass fills gaps with synthetic results; if the provider
+            # still objects, drop unanswered calls instead of preserving them.
+            working = repair_tool_pairs(working, aggressive=True)
+            if log is not None:
+                log(
+                    "[pinnace] provider rejected tool-message pairing; "
+                    f"repaired history and retrying {kind} "
+                    f"({retries}/{len(PAIRING_RETRY_DELAYS)})"
+                )
+            time.sleep(delay)
+
+
+def _safe_tail_start(messages: list[BaseMessage], desired: int) -> int:
+    """Move a compaction cut so it never splits an assistant/tool group."""
+    start = max(0, desired)
+    index = 0
+    total = len(messages)
+    while index < total:
+        calls = getattr(messages[index], "tool_calls", None) or []
+        if calls and isinstance(messages[index], AIMessage):
+            end = index + 1
+            while end < total and isinstance(messages[end], ToolMessage):
+                end += 1
+            if index < start < end:
+                start = index
+            index = end
+        else:
+            index += 1
+    return start
+
+
+def _compact_messages(model, messages, keep_last, on_response=None, log=None):
+    """Pinnace-style compaction with a tool-pair-safe tail boundary."""
+    if len(messages) <= keep_last + 1:
+        return messages
+    head = messages[0] if isinstance(messages[0], SystemMessage) else None
+    body_start = 1 if head else 0
+    desired = len(messages) - keep_last if keep_last else len(messages)
+    cut = _safe_tail_start(messages, max(body_start, desired))
+    to_summarize = messages[body_start:cut]
+    tail = messages[cut:]
+
+    request = [SystemMessage(content=SUMMARIZE_PROMPT), *to_summarize]
+    response, _ = _invoke_with_pairing_repair(
+        model, request, log=log, kind="compaction request"
+    )
+    if on_response is not None:
+        on_response(response)
+    summary = response.content
+    if not isinstance(summary, str):
+        summary = str(summary)
+
+    out: list[BaseMessage] = []
+    if head:
+        out.append(head)
+    out.append(
+        SystemMessage(
+            content=(
+                "Conversation so far (compacted — details summarized, tail "
+                "kept verbatim):\n" + summary
+            )
+        )
+    )
+    out.extend(tail)
+    return out
 
 
 class AplomadoAgent(PinnaceAgent):
@@ -73,24 +165,29 @@ class AplomadoAgent(PinnaceAgent):
 
         while turns < self.max_turns:
             turns += 1
+            messages = repair_tool_pairs(messages)
             if needs_compaction(messages, self.compaction_tokens):
                 before = estimate_tokens(messages)
-                messages = compact_messages(
+                messages = _compact_messages(
                     self.model,
                     messages,
                     self.compaction_keep_last,
                     on_response=lambda response: self._record_usage(
                         response, "compaction", usage_records
                     ),
+                    log=self._say,
                 )
                 compacted += 1
+                messages = repair_tool_pairs(messages)
                 self._say(
                     f"[pinnace] compacted context "
                     f"({before}→{estimate_tokens(messages)} est. tokens)"
                 )
 
             self._say(f"[pinnace] turn {turns}/{self.max_turns}, calling model…")
-            resp = self.bound.invoke(messages)
+            resp, messages = _invoke_with_pairing_repair(
+                self.bound, messages, log=self._say, kind="agent request"
+            )
             self._record_usage(resp, "agent_turn", usage_records)
             messages.append(resp)
 
@@ -158,7 +255,12 @@ class AplomadoAgent(PinnaceAgent):
             )))
             for _ in range(2):
                 try:
-                    resp = self.bound.invoke(messages)
+                    resp, messages = _invoke_with_pairing_repair(
+                        self.bound,
+                        messages,
+                        log=self._say,
+                        kind="wrap-up request",
+                    )
                 except Exception as e:  # noqa: BLE001 - keep the scan result
                     self._say(f"[pinnace] wrap-up model call failed: {e}")
                     break
@@ -199,6 +301,7 @@ class AplomadoAgent(PinnaceAgent):
                 if structured is not None:
                     break
 
+        messages = repair_tool_pairs(messages)
         if self.session_id:
             path = self.session_store.save(self.session_id, messages)
             self._say(f"[pinnace] session saved to {path}")
