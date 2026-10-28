@@ -29,23 +29,14 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-SEVERITIES = ("critical", "high", "medium", "low", "info")
-
-_SEVERITY_ALIASES = {
-    "crit": "critical",
-    "med": "medium",
-    "moderate": "medium",
-    "informational": "info",
-    "none": "info",
-}
-
-
-def coerce_severity(value: object) -> str:
-    """Map anything to a valid severity; unknown -> "info"."""
-    s = str(value or "").strip().lower()
-    if s in SEVERITIES:
-        return s
-    return _SEVERITY_ALIASES.get(s, "info")
+from .schema import (
+    SEVERITIES,
+    VULN_CLASSES,
+    Finding,
+    coerce_severity,
+    coerce_vuln_class,
+    validate_finding as _validate_model_finding,
+)
 
 
 def _now_iso() -> str:
@@ -139,9 +130,22 @@ def normalize_findings(
     elif payload is not None:
         summary = _as_str(payload)
 
-    findings = [
-        f for f in (normalize_finding(i) for i in raw_findings) if f is not None
-    ]
+    # The agent's output is untrusted: every item must validate as a Finding
+    # model before it is stored. Malformed items are dropped here.
+    findings = []
+    for item in raw_findings:
+        f = _validate_model_finding(item)
+        if f is None:
+            continue
+        # Fill endpoint context from the authoritative scan target when the
+        # model omitted it. The target argument still wins below.
+        if not f.get("host"):
+            f["host"] = _as_str(target) or payload_target
+        if not f.get("url"):
+            f["url"] = _as_str(target) or payload_target
+        if not f.get("endpoint"):
+            f["endpoint"] = f.get("url") or _as_str(target) or payload_target
+        findings.append(f)
 
     # The caller-owned scan target is authoritative. Model output must not
     # change finding identity or redirect downstream lifecycle records.
@@ -149,7 +153,7 @@ def normalize_findings(
 
     # Stamp each finding with a deterministic ID.
     for f in findings:
-        f["id"] = finding_id(resolved_target, f["title"], f["evidence"])
+        f["id"] = finding_id(resolved_target, f["title"], f.get("evidence", ""))
 
     return {
         "target": resolved_target,
