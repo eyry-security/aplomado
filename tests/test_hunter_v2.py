@@ -53,6 +53,7 @@ def test_finding_schema_coerces_and_drops_malformed():
         42,                    # not a finding -> dropped
     ]}, "https://a.example")
     assert len(env["findings"]) == 1
+    assert env["findings_dropped"] == 2
     f = env["findings"][0]
     assert isinstance(Finding.model_validate(f), Finding)
     assert f["severity"] == "high"

@@ -133,9 +133,11 @@ def normalize_findings(
     # The agent's output is untrusted: every item must validate as a Finding
     # model before it is stored. Malformed items are dropped here.
     findings = []
+    dropped = 0
     for item in raw_findings:
         f = _validate_model_finding(item)
         if f is None:
+            dropped += 1
             continue
         # Fill endpoint context from the authoritative scan target when the
         # model omitted it. The target argument still wins below.
@@ -155,7 +157,7 @@ def normalize_findings(
     for f in findings:
         f["id"] = finding_id(resolved_target, f["title"], f.get("evidence", ""))
 
-    return {
+    envelope = {
         "target": resolved_target,
         "summary": summary,
         "scanned_at": scanned_at
@@ -163,3 +165,6 @@ def normalize_findings(
         or _now_iso(),
         "findings": findings,
     }
+    if dropped:
+        envelope["findings_dropped"] = dropped
+    return envelope
