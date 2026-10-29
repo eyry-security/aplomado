@@ -12,7 +12,13 @@ This is the shared findings envelope that seeds the Eyry suite's schema
                 "severity": "critical" | "high" | "medium" | "low" | "info",
                 "title": str,    # one line, e.g. "Server header leaks version"
                 "detail": str,   # what it is and why it matters
-                "evidence": str, # the observed output backing it up
+                "summary": str,  # plain-language what + where
+                "reproduction_steps": [str],  # ordered, unnumbered steps
+                "impact": str,   # attacker gain + business consequence
+                "evidence": [    # verbatim proof excerpts
+                    {"kind": "request_response|tool_output|note",
+                     "label": str, "content": str}
+                ],
             }
         ],
     }
@@ -33,6 +39,8 @@ from .schema import (
     SEVERITIES,
     VULN_CLASSES,
     Finding,
+    _as_evidence,
+    _as_repro,
     coerce_severity,
     coerce_vuln_class,
     validate_finding as _validate_model_finding,
@@ -63,14 +71,29 @@ def _as_str(value: object) -> str:
     return value if isinstance(value, str) else str(value)
 
 
-def finding_id(target: str, title: str, evidence: str) -> str:
+def _evidence_fingerprint(evidence: object) -> str:
+    """Turn legacy or structured evidence into a stable identity string."""
+    if isinstance(evidence, str):
+        return evidence
+    if isinstance(evidence, (list, tuple)):
+        return json.dumps(
+            evidence,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    return str(evidence)
+
+
+def finding_id(target: str, title: str, evidence: object) -> str:
     """Return a stable SHA-256 ID for target, finding title, and evidence.
 
     Compact JSON gives unambiguous component boundaries even when text contains
     delimiters. Display-only and model-supplied IDs are intentionally ignored.
+    Structured evidence is fingerprinted canonically so re-scans dedupe.
     """
     payload = json.dumps(
-        [str(target), str(title), str(evidence)],
+        [str(target), str(title), _evidence_fingerprint(evidence)],
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -83,11 +106,24 @@ def normalize_finding(item: object) -> dict | None:
         item = {"title": item}
     if not isinstance(item, dict):
         return None
+    detail = _as_str(item.get("detail"))
+    summary = item.get("summary")
+    impact = item.get("impact")
+    steps = (
+        item.get("reproduction_steps")
+        or item.get("reproduction")
+        or item.get("repro")
+        or item.get("steps")
+        or []
+    )
     result = {
         "severity": coerce_severity(item.get("severity")),
         "title": _as_str(item.get("title")),
-        "detail": _as_str(item.get("detail")),
-        "evidence": _as_str(item.get("evidence")),
+        "detail": detail,
+        "summary": (summary if isinstance(summary, str) else "") or detail,
+        "reproduction_steps": _as_repro(steps),
+        "impact": impact if isinstance(impact, str) else "",
+        "evidence": _as_evidence(item.get("evidence")),
     }
     # Preserve unknown fields from the model (confidence, remediation, etc.)
     for key, value in item.items():

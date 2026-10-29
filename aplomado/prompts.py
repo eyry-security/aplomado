@@ -145,22 +145,28 @@ Call finish() with a single JSON object, as a string:
       "endpoint": "<path or endpoint>",
       "parameter": "<input/parameter, or empty>",
       "vuln_class": "sqli|xss|lfi|rce|auth-bypass|other",
-      "summary": "<what it is, in one or two sentences>",
-      "repro": ["1. <step>", "2. <step>", "3. <observed proof>"],
-      "evidence": "<request/response excerpt proving it>",
-      "impact": "<what an attacker can do>",
+      "summary": "<plain-language what and where>",
+      "reproduction_steps": ["<one action a tester can follow cold>", "<next action>", "<observed proof>"],
+      "impact": "<attacker gain and the business consequence>",
+      "evidence": [
+        {"kind": "request_response|tool_output|note", "label": "<short caption>", "content": "<verbatim excerpt>"}
+      ],
       "remediation": "<specific fix>",
       "detail": "<optional longer explanation>"
     }
   ]
 }
 
-Required per finding: severity, title, summary, repro, impact, remediation.
-Evidence must be observed output, not a guess. Nothing found? Emit one info
-finding describing what you checked. Severity guide: critical = remotely
-exploitable now; high = serious weakness, likely exploitable; medium =
-misconfiguration that aids an attacker; low = hygiene issue; info = observation
-worth noting.
+Required per finding: severity, title, summary, reproduction_steps, impact,
+remediation. Always write a summary. Every confirmed finding needs
+reproduction_steps that a tester can follow cold; the strings themselves are
+unnumbered (the UI adds numbers). Describe impact in business terms: what an
+attacker gains and why it matters. Evidence must be the actual
+request/response or tool output that proves the finding, quoted verbatim —
+never a paraphrase or a guess. Nothing found? Emit one info finding describing
+what you checked. Severity guide: critical = remotely exploitable now; high =
+serious weakness, likely exploitable; medium = misconfiguration that aids an
+attacker; low = hygiene issue; info = observation worth noting.
 """
 
 RUN_PROMPT_TEMPLATE = """\
@@ -305,22 +311,29 @@ Call finish() with a single JSON object, as a string:
       "endpoint": "<path or endpoint>",
       "parameter": "<input/parameter, or empty>",
       "vuln_class": "sqli|xss|lfi|rce|auth-bypass|other",
-      "summary": "<what it is and why it matters>",
-      "repro": ["1. <step>", "2. <observed proof>"],
-      "evidence": "<the actual observed output that proves it — short>",
-      "impact": "<what an attacker can do>",
+      "summary": "<plain-language what and where>",
+      "reproduction_steps": ["<one action a tester can follow cold>", "<next action>", "<observed proof>"],
+      "impact": "<attacker gain and the business consequence>",
+      "evidence": [
+        {"kind": "request_response|tool_output|note", "label": "<short caption>", "content": "<verbatim excerpt>"}
+      ],
       "remediation": "<specific fix>",
       "detail": "<optional longer explanation>"
     }
   ]
 }
 
-Required per finding: severity, title, summary, repro, impact, remediation.
-Every finding needs evidence you personally verified — scanner output alone
-is not evidence. Nothing found? Emit one info finding describing what you
-checked. Severity guide: critical = remotely exploitable now; high = serious
-weakness, likely exploitable; medium = misconfiguration that aids an attacker;
-low = hygiene issue; info = observation worth noting.
+Required per finding: severity, title, summary, reproduction_steps, impact,
+remediation. Always write a summary. Every confirmed finding needs
+reproduction_steps that a tester can follow cold; the strings themselves are
+unnumbered (the UI adds numbers). Describe impact in business terms: what an
+attacker gains and why it matters. Evidence must be the actual
+request/response or tool output that proves the finding, quoted verbatim —
+never a paraphrase. Every finding needs evidence you personally verified —
+scanner output alone is not evidence. Nothing found? Emit one info finding
+describing what you checked. Severity guide: critical = remotely exploitable
+now; high = serious weakness, likely exploitable; medium = misconfiguration
+that aids an attacker; low = hygiene issue; info = observation worth noting.
 """
 
 BUGHUNTER_RUN_PROMPT_TEMPLATE = 'TARGET: {target}\n\n{target_context_block}Work the funnel: map (katana/hakrawler) → JS recon → nuclei → param discovery → targeted injection (dalfox/sqli/ffuf) → curl-verify every hit. Tread lightly, escalate only on indicators. Then call finish() with your findings JSON.'

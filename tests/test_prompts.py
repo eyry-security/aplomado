@@ -39,3 +39,16 @@ def test_build_prompt_without_context_has_no_blank_block():
     prompt = build_prompt("https://example.com")
     # Should have exactly two parts: TARGET line and the investigate instruction
     assert prompt.count("\n\n") == 1
+
+
+def test_finish_format_instructs_structured_findings():
+    from aplomado.prompts import BUGHUNTER_SYSTEM_PROMPT
+
+    for prompt in (SYSTEM_PROMPT, BUGHUNTER_SYSTEM_PROMPT):
+        assert '"summary": "<plain-language what and where>"' in prompt
+        assert '"reproduction_steps"' in prompt
+        assert '"impact": "<attacker gain and the business consequence>"' in prompt
+        assert '"kind": "request_response|tool_output|note"' in prompt
+        assert "verbatim" in prompt
+        assert "business terms" in prompt
+        assert "follow cold" in prompt

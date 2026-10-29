@@ -170,3 +170,138 @@ def test_scanned_at_now_is_recent():
     after = datetime.now(timezone.utc)
     ts = datetime.fromisoformat(env["scanned_at"])
     assert before <= ts <= after
+
+
+def test_structured_finding_round_trips():
+    payload = {
+        "findings": [
+            {
+                "severity": "high",
+                "title": "IDOR on invoice endpoint",
+                "host": "shop.example",
+                "url": "https://shop.example/api/invoices/42",
+                "summary": "Any signed-in user can read another user's invoice.",
+                "reproduction_steps": [
+                    "Sign in as user A and copy the session cookie.",
+                    "Send GET /api/invoices/42 with user A's cookie.",
+                    "Observe invoice 42, which belongs to user B.",
+                ],
+                "impact": "An attacker can read every customer's invoices, exposing billing data and enabling fraud.",
+                "evidence": [
+                    {
+                        "kind": "request_response",
+                        "label": "Cross-tenant invoice read",
+                        "content": "GET /api/invoices/42\n\nHTTP/1.1 200 OK\n\n{\"owner\":\"user-b\"}",
+                    },
+                    {"kind": "note", "label": "Accounts", "content": "A and B are separate tenants."},
+                ],
+                "detail": "Legacy explanation",
+            }
+        ]
+    }
+    env = normalize_findings(payload, "https://shop.example")
+    f = env["findings"][0]
+    assert f["summary"] == "Any signed-in user can read another user's invoice."
+    assert f["reproduction_steps"] == [
+        "Sign in as user A and copy the session cookie.",
+        "Send GET /api/invoices/42 with user A's cookie.",
+        "Observe invoice 42, which belongs to user B.",
+    ]
+    assert f["impact"].startswith("An attacker can read every customer's invoices")
+    assert f["evidence"] == [
+        {
+            "kind": "request_response",
+            "label": "Cross-tenant invoice read",
+            "content": "GET /api/invoices/42\n\nHTTP/1.1 200 OK\n\n{\"owner\":\"user-b\"}",
+        },
+        {"kind": "note", "label": "Accounts", "content": "A and B are separate tenants."},
+    ]
+    assert "id" in f
+
+
+def test_partial_structured_fields_degrade_to_legacy_shape():
+    env = normalize_findings(
+        {
+            "findings": [
+                {
+                    "severity": "low",
+                    "title": "Missing HSTS",
+                    "detail": "The response omits Strict-Transport-Security.",
+                    "evidence": "HTTP/1.1 200 OK\r\n(no Strict-Transport-Security)",
+                }
+            ]
+        },
+        "example.com",
+    )
+    (f,) = env["findings"]
+    assert f["title"] == "Missing HSTS"
+    assert f["detail"] == "The response omits Strict-Transport-Security."
+    assert f["summary"] == f["detail"]  # summary falls back to detail
+    assert f["reproduction_steps"] == []
+    assert f["impact"] == ""
+    assert f["evidence"] == "HTTP/1.1 200 OK\r\n(no Strict-Transport-Security)"
+
+
+def test_malformed_structured_fields_never_drop_the_finding():
+    env = normalize_findings(
+        {
+            "findings": [
+                {
+                    "severity": "medium",
+                    "title": "Still reported",
+                    "summary": {"not": "a string"},
+                    "reproduction_steps": {"not": "a list"},
+                    "impact": ["not", "a", "string"],
+                    "evidence": 42,
+                }
+            ]
+        },
+        "example.com",
+    )
+    (f,) = env["findings"]
+    assert f["title"] == "Still reported"
+    assert f["summary"] == ""
+    assert f["reproduction_steps"] == []
+    assert f["impact"] == ""
+    assert f["evidence"] == ""
+
+
+def test_malformed_evidence_entries_are_dropped_or_coerced():
+    env = normalize_findings(
+        {
+            "findings": [
+                {
+                    "title": "Evidence hygiene",
+                    "evidence": [
+                        {"kind": "request_response", "label": "GET", "content": "HTTP/1.1 200 OK"},
+                        {"kind": "bogus", "label": 7, "content": "unknown kind becomes note"},
+                        {"kind": "note", "label": "no content"},  # dropped
+                        "not an object",  # dropped
+                        42,  # dropped
+                        {"label": "missing kind", "content": "also a note"},
+                    ],
+                }
+            ]
+        },
+        "example.com",
+    )
+    (f,) = env["findings"]
+    assert f["evidence"] == [
+        {"kind": "request_response", "label": "GET", "content": "HTTP/1.1 200 OK"},
+        {"kind": "note", "label": "7", "content": "unknown kind becomes note"},
+        {"kind": "note", "label": "missing kind", "content": "also a note"},
+    ]
+
+
+def test_normalize_finding_keeps_structured_fields():
+    f = normalize_finding(
+        {
+            "title": "Structured",
+            "reproduction_steps": "first\nsecond",
+            "impact": "Business impact",
+            "evidence": {"kind": "tool_output", "label": "curl", "content": "200 OK"},
+        }
+    )
+    assert f["reproduction_steps"] == ["first", "second"]
+    assert f["impact"] == "Business impact"
+    assert f["evidence"] == [{"kind": "tool_output", "label": "curl", "content": "200 OK"}]

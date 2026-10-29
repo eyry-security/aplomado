@@ -180,10 +180,19 @@ def _print_findings(env: dict) -> None:
         print(f"\n{tag} {title}{suffix}")
         if f.get("detail"):
             print("  " + f["detail"].replace("\n", "\n  "))
-        if f.get("evidence"):
+        evidence = f.get("evidence")
+        if isinstance(evidence, str) and evidence:
             print(color("  evidence:", "dim", stream=out))
-            for line in f["evidence"].splitlines():
+            for line in evidence.splitlines():
                 print(f"  | {line}")
+        elif isinstance(evidence, (list, tuple)):
+            for item in evidence:
+                if not isinstance(item, dict):
+                    continue
+                label = item.get("label") or item.get("kind") or "evidence"
+                print(color(f"  evidence ({label}):", "dim", stream=out))
+                for line in str(item.get("content", "")).splitlines():
+                    print(f"  | {line}")
 
 
 def _iter_targets(args):

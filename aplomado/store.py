@@ -11,6 +11,7 @@ produces — no separate data model required.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Protocol
 
@@ -59,6 +60,9 @@ class RuttStore:
         findings = envelope.get("findings", [])
 
         for finding in findings:
+            evidence = finding.get("evidence", "")
+            if not isinstance(evidence, str):
+                evidence = json.dumps(evidence, ensure_ascii=False)
             self._rutt.add_finding(
                 finding.get("title", ""),
                 host=target,
@@ -68,7 +72,10 @@ class RuttStore:
                 data={
                     "id": finding.get("id", ""),
                     "check": finding.get("check") or finding.get("title", ""),
-                    "evidence": finding.get("evidence", ""),
+                    "summary": finding.get("summary", ""),
+                    "reproduction_steps": finding.get("reproduction_steps", []),
+                    "impact": finding.get("impact", ""),
+                    "evidence": evidence,
                 },
             )
 

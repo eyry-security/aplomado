@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 VULN_CLASSES = ("sqli", "xss", "lfi", "rce", "auth-bypass", "other")
+EVIDENCE_KINDS = ("request_response", "tool_output", "note")
 
 _SEVERITY_ALIASES = {
     "crit": "critical",
@@ -77,6 +78,42 @@ def _as_repro(value: Any) -> list[str]:
     return steps
 
 
+def _as_evidence(value: Any) -> str | list[dict[str, str]]:
+    """Normalize the structured evidence array, keeping legacy string proof.
+
+    A legacy string is preserved verbatim so old findings keep their shape.
+    Structured input becomes a list of ``{kind, label, content}`` objects;
+    malformed entries are dropped, and an unknown kind degrades to ``note``.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return ""
+
+    items: list[dict[str, str]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        content = _as_str(entry.get("content"))
+        if not content:
+            continue
+        kind = _as_str(entry.get("kind")).strip().lower()
+        if kind not in EVIDENCE_KINDS:
+            kind = "note"
+        items.append(
+            {
+                "kind": kind,
+                "label": _as_str(entry.get("label")).strip(),
+                "content": content,
+            }
+        )
+    return items
+
+
 class Finding(BaseModel):
     """One evidence-backed finding emitted by the AI scanner."""
 
@@ -91,7 +128,8 @@ class Finding(BaseModel):
     vuln_class: str = "other"
     summary: str = ""
     repro: list[str] = Field(default_factory=list)
-    evidence: str = ""
+    reproduction_steps: list[str] = Field(default_factory=list)
+    evidence: str | list[dict[str, str]] = ""
     impact: str = ""
     remediation: str = ""
     detail: str = ""
@@ -106,10 +144,20 @@ class Finding(BaseModel):
     def _vuln_class(cls, value: object) -> str:
         return coerce_vuln_class(value)
 
-    @field_validator("repro", mode="before")
+    @field_validator("repro", "reproduction_steps", mode="before")
     @classmethod
     def _repro(cls, value: object) -> list[str]:
         return _as_repro(value)
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _evidence(cls, value: object) -> str | list[dict[str, str]]:
+        return _as_evidence(value)
+
+    @field_validator("summary", "impact", mode="before")
+    @classmethod
+    def _structured_strings(cls, value: object) -> str:
+        return value if isinstance(value, str) else ""
 
     @field_validator(
         "title",
@@ -117,9 +165,6 @@ class Finding(BaseModel):
         "url",
         "endpoint",
         "parameter",
-        "summary",
-        "evidence",
-        "impact",
         "remediation",
         "detail",
         mode="before",
@@ -152,17 +197,28 @@ def validate_finding(item: object, *, require_title: bool = True) -> dict | None
             or payload.get("vuln_type")
             or ""
         )
+    steps = (
+        payload.get("reproduction_steps")
+        or payload.get("reproduction")
+        or payload.get("repro")
+        or payload.get("steps")
+        or []
+    )
     if not payload.get("repro"):
-        payload["repro"] = (
-            payload.get("reproduction") or payload.get("steps") or []
-        )
+        payload["repro"] = steps
+    if not payload.get("reproduction_steps"):
+        payload["reproduction_steps"] = steps
     try:
         finding = Finding.model_validate(payload)
     except Exception:  # noqa: BLE001 - validation failure means drop
         return None
     if require_title and not finding.title.strip():
         return None
-    return finding.model_dump()
+    data = finding.model_dump()
+    # The structured summary falls back to the legacy detail text.
+    if not data.get("summary") and data.get("detail"):
+        data["summary"] = data["detail"]
+    return data
 
 
 class FindingEnvelope(BaseModel):
