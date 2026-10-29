@@ -34,6 +34,12 @@ from pinnace.tools import parse_finish
 
 from .command_policy import shell_tool
 from .history import is_tool_pairing_error, repair_tool_pairs
+from .partial import (
+    build_coverage_statement,
+    build_salvage_prompt,
+    target_from_prompt,
+)
+from .todos import load_todos
 
 PAIRING_RETRY_DELAYS = (0.25, 0.5, 1.0)
 
@@ -142,6 +148,9 @@ class AplomadoAgent(PinnaceAgent):
         super().__init__(*args, **kwargs)
         self.buffer_store = buffer_store
         self.token_budget = token_budget
+        self.coverage_target = None
+        self.partial = False
+        self.coverage = None
         shell = self._tools_by_name.get("shell")
         if shell is not None:
             replacement = shell_tool(self.sandbox)
@@ -154,7 +163,49 @@ class AplomadoAgent(PinnaceAgent):
             if self._cache_system:
                 self._add_tools_cache_breakpoint()
 
+    def _salvage_partial(self, messages, usage_records, prompt):
+        """Try one finish-only completion over a fresh coverage request."""
+        target = self.coverage_target or target_from_prompt(prompt)
+        try:
+            todos = load_todos(self.sandbox)
+        except Exception:  # noqa: BLE001 - coverage must not block salvage
+            todos = []
+        coverage = build_coverage_statement(
+            target=target,
+            messages=messages,
+            todos=todos,
+            usage_records=usage_records,
+        )
+        request = [
+            self._system_message(),
+            HumanMessage(content=build_salvage_prompt(coverage)),
+        ]
+        try:
+            response = self.bound.invoke(request)
+            self._record_usage(response, "salvage_turn", usage_records)
+        except Exception as exc:  # noqa: BLE001 - salvage is best-effort
+            self._say(f"[pinnace] partial salvage model call failed: {exc}")
+            return None
+
+        finish_tool = self._tools_by_name.get("finish")
+        if finish_tool is None:
+            return None
+        for call in getattr(response, "tool_calls", None) or []:
+            if call.get("name") != "finish":
+                continue
+            try:
+                out = str(finish_tool.invoke(call.get("args", {}) or {}))
+            except Exception as exc:  # noqa: BLE001 - salvage is best-effort
+                self._say(f"[pinnace] partial salvage finish() failed: {exc}")
+                continue
+            payload = parse_finish(out)
+            if payload is not None:
+                return payload, coverage, response, out
+        return None
+
     def run(self, prompt: str) -> AgentResult:
+        self.partial = False
+        self.coverage = None
         messages: list[BaseMessage] = []
         if self.system_prompt:
             messages.append(self._system_message())
@@ -209,9 +260,44 @@ class AplomadoAgent(PinnaceAgent):
                 )
 
             self._say(f"[pinnace] turn {turns}/{self.max_turns}, calling model…")
-            resp, messages = _invoke_with_pairing_repair(
-                self.bound, messages, log=self._say, kind="agent request"
-            )
+            try:
+                resp, messages = _invoke_with_pairing_repair(
+                    self.bound, messages, log=self._say, kind="agent request"
+                )
+            except Exception as exc:  # noqa: BLE001 - pairing exhaustion only
+                if not is_tool_pairing_error(exc):
+                    raise
+                try:
+                    salvaged = self._salvage_partial(
+                        messages, usage_records, prompt
+                    )
+                except Exception as salvage_exc:  # noqa: BLE001
+                    self._say(
+                        "[pinnace] partial salvage failed: "
+                        f"{salvage_exc}"
+                    )
+                    salvaged = None
+                if salvaged is None:
+                    raise
+                structured, coverage, resp, out = salvaged
+                self.partial = True
+                self.coverage = coverage
+                messages.append(resp)
+                for call in getattr(resp, "tool_calls", None) or []:
+                    if call.get("name") == "finish":
+                        messages.append(
+                            ToolMessage(
+                                content=out,
+                                tool_call_id=call.get("id", ""),
+                                name="finish",
+                            )
+                        )
+                        break
+                self._say(
+                    "[pinnace] pairing retries exhausted — salvaged a "
+                    "partial finish"
+                )
+                break
             self._record_usage(resp, "agent_turn", usage_records)
             messages.append(resp)
             if self.token_budget and _usage_tokens(usage_records) >= self.token_budget:
