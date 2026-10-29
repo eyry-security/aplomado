@@ -251,7 +251,10 @@ def run_scan(
             # Keep agent.model concrete for Pinnace capability checks; only observe
             # the final tool-bound invocation layer.
             agent.bound = ThinkingModel(agent.bound, thinking, effective_log)
+        agent.coverage_target = target
         result = agent.run(build_prompt(target, target_context, prompts))
+        salvaged_partial = bool(getattr(agent, "partial", False))
+        salvaged_coverage = getattr(agent, "coverage", None)
     finally:
         if own_sandbox:
             try:
@@ -274,6 +277,10 @@ def run_scan(
         if not result.final:
             ok = False
             error = "scan ended without calling finish()"
+
+    if salvaged_partial:
+        envelope["partial"] = True
+        envelope["coverage"] = salvaged_coverage or ""
 
     if token_budget is not None:
         used = 0
