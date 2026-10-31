@@ -35,6 +35,37 @@ def test_build_prompt_with_context():
     assert "finish()" in prompt
 
 
+def test_build_prompt_pins_agent_to_the_assigned_host():
+    target = "https://blog.example.com"
+    prompt = build_prompt(target)
+    assert "HOST DISCIPLINE" in prompt
+    assert f"The assigned host — {target} — is the ONLY target" in prompt
+    assert "are CONTEXT ONLY" in prompt
+    assert "never test them and never file findings about them" in prompt
+    assert "every finding's host is the assigned host" in prompt
+    assert "do not follow the trail onto other hosts" in prompt
+    discipline = prompt.split("HOST DISCIPLINE", 1)[1]
+    assert target in discipline
+
+
+def test_bughunter_build_prompt_pins_agent_to_the_assigned_host():
+    from aplomado.prompts import get_prompt_pack
+
+    target = "https://shop.example.com"
+    prompt = build_prompt(target, prompt_pack=get_prompt_pack("bughunter-v1"))
+    assert "HOST DISCIPLINE" in prompt
+    assert f"The assigned host — {target} — is the ONLY target" in prompt
+    assert "every finding's host is the assigned host" in prompt
+
+
+def test_subagent_prompt_keeps_the_parent_host_in_scope():
+    from aplomado.subagents import _child_prompt
+
+    prompt = _child_prompt("check headers", "context")
+    assert "host assigned to the parent target" in prompt
+    assert "never test them or file findings about them" in prompt
+
+
 def test_build_prompt_without_context_has_no_blank_block():
     prompt = build_prompt("https://example.com")
     # Should have exactly two parts: TARGET line and the investigate instruction

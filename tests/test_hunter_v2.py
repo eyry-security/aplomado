@@ -58,7 +58,7 @@ def test_finding_schema_coerces_and_drops_malformed():
     assert isinstance(Finding.model_validate(f), Finding)
     assert f["severity"] == "high"
     assert f["vuln_class"] == "sqli"
-    assert f["repro"] == ["1. inject", "2. observe"]
+    assert f["repro"] == ["inject", "observe"]
 
 
 def test_prompts_use_active_hunting_posture():
