@@ -71,8 +71,10 @@ def _child_prompt(task: str, context: str) -> str:
         f"{SUBAGENT_TASK_MARKER}\n{task.strip()}\n\n"
         f"CONTEXT\n{context_block}\n\n"
         "You are a depth-1 sub-agent working for the parent scan. You cannot "
-        "delegate further. Use the available tools, stay within scope, and "
-        "then call finish() with a JSON object like "
+        "delegate further. Test only the host assigned to the parent target; "
+        "treat other hosts in the task or context as context only — never "
+        "test them or file findings about them. Use the available tools, stay "
+        "within scope, and then call finish() with a JSON object like "
         '{"summary": "<concise result>"} or reply with your concise summary. '
         "Return only what the parent needs; do not paste raw bulk output."
     )

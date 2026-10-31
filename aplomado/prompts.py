@@ -172,10 +172,24 @@ misconfiguration that aids an attacker; low = hygiene issue; info = observation
 worth noting.
 """
 
-RUN_PROMPT_TEMPLATE = """\
-TARGET: {target}
+HOST_DISCIPLINE_TEMPLATE = """\
+HOST DISCIPLINE
+- The assigned host — {target} — is the ONLY target. Probe, fetch, fuzz, and
+  test that host only.
+- Other hosts that appear in recon data, share the same IP, are linked from
+  the assigned host's pages, or belong to the same scope are CONTEXT ONLY:
+  never test them and never file findings about them.
+- File a finding only when the vulnerable behavior was observed on the
+  assigned host itself; every finding's host is the assigned host.
+- If the assigned host redirects elsewhere or embeds third-party content,
+  report only what is observable on the assigned host;
+  do not follow the trail onto other hosts."""
 
-{target_context_block}Investigate the target, then call finish() with your findings JSON."""
+RUN_PROMPT_TEMPLATE = (
+    "TARGET: {target}\n\n"
+    + HOST_DISCIPLINE_TEMPLATE
+    + "\n{target_context_block}Investigate the target, then call finish() with your findings JSON."
+)
 
 DEFAULT_PROMPT_PACK_ID = "recon-v1"
 _RECON_V1 = PromptPack(
@@ -342,7 +356,11 @@ misconfiguration that aids an attacker; low = hygiene issue; info = observation
 worth noting.
 """
 
-BUGHUNTER_RUN_PROMPT_TEMPLATE = 'TARGET: {target}\n\n{target_context_block}Work the funnel: map (katana/hakrawler) → JS recon → nuclei → param discovery → targeted injection (dalfox/sqli/ffuf) → curl-verify every hit. Tread lightly, escalate only on indicators. Then call finish() with your findings JSON.'
+BUGHUNTER_RUN_PROMPT_TEMPLATE = (
+    "TARGET: {target}\n\n"
+    + HOST_DISCIPLINE_TEMPLATE
+    + "\n{target_context_block}Work the funnel: map (katana/hakrawler) → JS recon → nuclei → param discovery → targeted injection (dalfox/sqli/ffuf) → curl-verify every hit. Tread lightly, escalate only on indicators. Then call finish() with your findings JSON."
+)
 
 _BUGHUNTER_V1 = PromptPack(
     name="bughunter",
