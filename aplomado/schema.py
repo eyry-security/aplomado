@@ -7,6 +7,7 @@ rejected rather than written as raw dictionaries.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -68,14 +69,40 @@ def _as_str(value: object) -> str:
     return value if isinstance(value, str) else str(value)
 
 
+def _strip_step_enumerator(step: str, position: int) -> str:
+    """Strip a leading enumerator only when it matches the step's position."""
+    patterns = (
+        re.compile(rf"^\s*{position}\s*[.)]\s+"),
+        re.compile(rf"^\s*[Ss]tep\s*{position}\s*[:.)]\s*"),
+    )
+    for _ in range(2):  # handles "1. 1. X" without eating content numbers
+        for pattern in patterns:
+            match = pattern.match(step)
+            if match:
+                step = step[match.end():].strip()
+                break
+        else:
+            break
+    return step
+
+
 def _as_repro(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
-        steps = [_as_str(step).strip() for step in value if _as_str(step).strip()]
+        raw = [_as_str(step) for step in value]
     elif isinstance(value, str):
-        steps = [line.strip() for line in value.splitlines() if line.strip()]
+        raw = [value]
     else:
-        steps = []
-    return steps
+        return []
+    steps = [
+        line.strip()
+        for element in raw
+        for line in element.split("\n")
+        if line.strip()
+    ]
+    return [
+        _strip_step_enumerator(step, position)
+        for position, step in enumerate(steps, start=1)
+    ]
 
 
 def _as_evidence(value: Any) -> str | list[dict[str, str]]:

@@ -305,3 +305,61 @@ def test_normalize_finding_keeps_structured_fields():
     assert f["reproduction_steps"] == ["first", "second"]
     assert f["impact"] == "Business impact"
     assert f["evidence"] == [{"kind": "tool_output", "label": "curl", "content": "200 OK"}]
+
+
+def test_repro_steps_split_packed_numbered_string():
+    f = normalize_finding(
+        {
+            "reproduction_steps": [
+                "1. 1. Download https://example.com/main.js and grep for 'innerHTML'.\n"
+                "2. 2. The application occurrence renders the changelog.\n"
+                "3. 3. The other occurrence renders attacker input."
+            ]
+        }
+    )
+    assert f["reproduction_steps"] == [
+        "Download https://example.com/main.js and grep for 'innerHTML'.",
+        "The application occurrence renders the changelog.",
+        "The other occurrence renders attacker input.",
+    ]
+
+
+def test_repro_steps_strip_step_prefix_at_matching_position():
+    f = normalize_finding(
+        {
+            "reproduction_steps": [
+                "Open the changelog page",
+                "Step 2: Submit the form",
+                "Observe the rendered payload",
+            ]
+        }
+    )
+    assert f["reproduction_steps"] == [
+        "Open the changelog page",
+        "Submit the form",
+        "Observe the rendered payload",
+    ]
+
+
+def test_repro_steps_keep_numbers_that_do_not_match_position():
+    steps = [
+        "Visit /missing",
+        "404. The page returns a 404 error",
+        "Note the response body",
+    ]
+    assert normalize_finding({"reproduction_steps": steps})["reproduction_steps"] == steps
+
+
+def test_repro_steps_keep_plain_unnumbered_steps():
+    steps = [
+        "Open the target",
+        "Click the login link",
+        "Observe the reflected payload",
+    ]
+    assert normalize_finding({"reproduction_steps": steps})["reproduction_steps"] == steps
+
+
+def test_repro_steps_empty_or_garbage_is_empty():
+    for raw in (None, "", [], 42, {"not": "a list"}, ["", "  \n "]):
+        f = normalize_finding({"reproduction_steps": raw})
+        assert f["reproduction_steps"] == [], raw

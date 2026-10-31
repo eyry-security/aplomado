@@ -158,15 +158,18 @@ Call finish() with a single JSON object, as a string:
 }
 
 Required per finding: severity, title, summary, reproduction_steps, impact,
-remediation. Always write a summary. Every confirmed finding needs
-reproduction_steps that a tester can follow cold; the strings themselves are
-unnumbered (the UI adds numbers). Describe impact in business terms: what an
-attacker gains and why it matters. Evidence must be the actual
-request/response or tool output that proves the finding, quoted verbatim —
-never a paraphrase or a guess. Nothing found? Emit one info finding describing
-what you checked. Severity guide: critical = remotely exploitable now; high =
-serious weakness, likely exploitable; medium = misconfiguration that aids an
-attacker; low = hygiene issue; info = observation worth noting.
+remediation. Always write a summary. reproduction_steps is an array of SEPARATE
+step strings: NEVER number the steps (the report UI numbers them), NEVER join
+steps into one string. Each step is one action a tester can follow cold.
+Describe impact in business terms: what an attacker gains and why it matters.
+Evidence must be the actual request/response or tool output that proves the
+finding, quoted verbatim — never a paraphrase or a guess. Give evidence one
+item per piece: wrap code and commands in backticks, and put multi-line output
+in its own item with the newlines preserved. Nothing found? Emit one info
+finding describing what you checked. Severity guide: critical = remotely
+exploitable now; high = serious weakness, likely exploitable; medium =
+misconfiguration that aids an attacker; low = hygiene issue; info = observation
+worth noting.
 """
 
 RUN_PROMPT_TEMPLATE = """\
@@ -324,16 +327,19 @@ Call finish() with a single JSON object, as a string:
 }
 
 Required per finding: severity, title, summary, reproduction_steps, impact,
-remediation. Always write a summary. Every confirmed finding needs
-reproduction_steps that a tester can follow cold; the strings themselves are
-unnumbered (the UI adds numbers). Describe impact in business terms: what an
-attacker gains and why it matters. Evidence must be the actual
-request/response or tool output that proves the finding, quoted verbatim —
-never a paraphrase. Every finding needs evidence you personally verified —
-scanner output alone is not evidence. Nothing found? Emit one info finding
-describing what you checked. Severity guide: critical = remotely exploitable
-now; high = serious weakness, likely exploitable; medium = misconfiguration
-that aids an attacker; low = hygiene issue; info = observation worth noting.
+remediation. Always write a summary. reproduction_steps is an array of SEPARATE
+step strings: NEVER number the steps (the report UI numbers them), NEVER join
+steps into one string. Each step is one action a tester can follow cold.
+Describe impact in business terms: what an attacker gains and why it matters.
+Evidence must be the actual request/response or tool output that proves the
+finding, quoted verbatim — never a paraphrase. Give evidence one item per
+piece: wrap code and commands in backticks, and put multi-line output in its
+own item with the newlines preserved. Every finding needs evidence you
+personally verified — scanner output alone is not evidence. Nothing found?
+Emit one info finding describing what you checked. Severity guide: critical =
+remotely exploitable now; high = serious weakness, likely exploitable; medium =
+misconfiguration that aids an attacker; low = hygiene issue; info = observation
+worth noting.
 """
 
 BUGHUNTER_RUN_PROMPT_TEMPLATE = 'TARGET: {target}\n\n{target_context_block}Work the funnel: map (katana/hakrawler) → JS recon → nuclei → param discovery → targeted injection (dalfox/sqli/ffuf) → curl-verify every hit. Tread lightly, escalate only on indicators. Then call finish() with your findings JSON.'
