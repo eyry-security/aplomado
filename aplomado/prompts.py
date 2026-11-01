@@ -165,7 +165,7 @@ Describe impact in business terms: what an attacker gains and why it matters.
 Evidence must be the actual request/response or tool output that proves the
 finding, quoted verbatim — never a paraphrase or a guess. Give evidence one
 item per piece: wrap code and commands in triple backticks, and put multi-line output
-in its own item with the newlines preserved. When a step or an evidence item shows an HTTP request, write it as a runnable curl command — never paste raw HTTP request text. Every command you show, in the steps and in evidence alike, goes in triple backticks. In the reproduction steps, include a short snippet of the actual tool output that proves the step's result, also wrapped in triple backticks. Nothing found? Emit one info
+in its own item with the newlines preserved. When a step or an evidence item shows an HTTP request, write it as a runnable curl command — never paste raw HTTP request text. Every command you show, in the steps and in evidence alike, goes in a triple-backtick fence tagged with its language — ```bash for shell commands and curl. In the reproduction steps, include a short snippet of the actual tool output that proves the step's result, also in a triple-backtick fence, tagged with the language when it is known. Nothing found? Emit one info
 finding describing what you checked. Severity guide: critical = remotely
 exploitable now; high = serious weakness, likely exploitable; medium =
 misconfiguration that aids an attacker; low = hygiene issue; info = observation
@@ -348,7 +348,7 @@ Describe impact in business terms: what an attacker gains and why it matters.
 Evidence must be the actual request/response or tool output that proves the
 finding, quoted verbatim — never a paraphrase. Give evidence one item per
 piece: wrap code and commands in triple backticks, and put multi-line output in its
-own item with the newlines preserved. When a step or an evidence item shows an HTTP request, write it as a runnable curl command — never paste raw HTTP request text. Every command you show, in the steps and in evidence alike, goes in triple backticks. In the reproduction steps, include a short snippet of the actual tool output that proves the step's result, also wrapped in triple backticks. Every finding needs evidence you
+own item with the newlines preserved. When a step or an evidence item shows an HTTP request, write it as a runnable curl command — never paste raw HTTP request text. Every command you show, in the steps and in evidence alike, goes in a triple-backtick fence tagged with its language — ```bash for shell commands and curl. In the reproduction steps, include a short snippet of the actual tool output that proves the step's result, also in a triple-backtick fence, tagged with the language when it is known. Every finding needs evidence you
 personally verified — scanner output alone is not evidence. Nothing found?
 Emit one info finding describing what you checked. Severity guide: critical =
 remotely exploitable now; high = serious weakness, likely exploitable; medium =
