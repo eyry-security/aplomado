@@ -156,8 +156,11 @@ class AplomadoAgent(PinnaceAgent):
         buffer_store=None,
         token_budget=None,
         turn_counter=None,
+        tool_registry=None,
+        gated_tools=None,
         **kwargs,
     ) -> None:
+        self._bound_wrapper = None
         super().__init__(*args, **kwargs)
         self.buffer_store = buffer_store
         self.token_budget = token_budget
@@ -165,6 +168,26 @@ class AplomadoAgent(PinnaceAgent):
         self.coverage_target = None
         self.partial = False
         self.coverage = None
+        self.pending_injections: list[BaseMessage] = []
+        # Tools that exist for this run but are not bound until a skill
+        # grants them. Shipped skills declare no unlocks, so this is empty in
+        # production v1; fixture skills prove the mechanism.
+        self._tool_registry = {
+            tool.name: tool
+            for tool in (tool_registry or [])
+            if tool.name not in self._tools_by_name
+        }
+        changed = False
+        # A gated builtin (for example shell) is created by Pinnace; move it
+        # out of the initial binding into the unlock registry.
+        for raw_name in gated_tools or ():
+            name = str(raw_name)
+            held = self._tools_by_name.pop(name, None)
+            if held is None:
+                continue
+            self.tools = [tool for tool in self.tools if tool.name != name]
+            self._tool_registry.setdefault(name, held)
+            changed = True
         shell = self._tools_by_name.get("shell")
         if shell is not None:
             replacement = shell_tool(self.sandbox)
@@ -173,9 +196,52 @@ class AplomadoAgent(PinnaceAgent):
                 for tool in self.tools
             ]
             self._tools_by_name["shell"] = replacement
-            self.bound = self.model.bind_tools(self.tools)
-            if self._cache_system:
-                self._add_tools_cache_breakpoint()
+            changed = True
+        elif "shell" in self._tool_registry:
+            self._tool_registry["shell"] = shell_tool(self.sandbox)
+        if changed:
+            self._rebind_tools()
+
+    def _rebind_tools(self) -> None:
+        """Rebind the model to the current tool set, preserving wrappers."""
+        bound = self.model.bind_tools(self.tools)
+        if self._bound_wrapper is not None:
+            bound = self._bound_wrapper(bound)
+        self.bound = bound
+        if self._cache_system:
+            self._add_tools_cache_breakpoint()
+
+    def set_bound_wrapper(self, factory) -> None:
+        """Wrap future tool rebinds (used for thinking narration)."""
+        self._bound_wrapper = factory
+        self._rebind_tools()
+
+    def add_tools(self, names) -> list[str]:
+        """Bind additional pre-instantiated tools by name.
+
+        Only tools supplied to ``tool_registry`` can be granted; unknown or
+        already-bound names are ignored. Returns the newly granted names.
+        """
+        granted: list[str] = []
+        for raw_name in names or ():
+            name = str(raw_name)
+            if name in self._tools_by_name:
+                continue
+            tool = self._tool_registry.pop(name, None)
+            if tool is None:
+                continue
+            self.tools.append(tool)
+            self._tools_by_name[name] = tool
+            granted.append(name)
+        if granted:
+            self._rebind_tools()
+        return granted
+
+    def queue_injection(self, content: str) -> None:
+        """Queue a system-style message for the top of the next turn."""
+        if not isinstance(content, str) or not content.strip():
+            return
+        self.pending_injections.append(SystemMessage(content=content))
 
     def _salvage_partial(self, messages, usage_records, prompt):
         """Try one finish-only completion over a fresh coverage request."""
@@ -252,6 +318,9 @@ class AplomadoAgent(PinnaceAgent):
                 setter = getattr(self.turn_counter, "set", None)
                 if callable(setter):
                     setter(turns)
+            if self.pending_injections:
+                messages.extend(self.pending_injections)
+                self.pending_injections = []
             messages = repair_tool_pairs(messages)
             if self.token_budget and _usage_tokens(usage_records) >= self.token_budget:
                 budget_hit = True

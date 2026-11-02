@@ -62,7 +62,7 @@ def test_planning_protocol_is_in_the_pro_pack_run_prompt(tmp_path):
     )
     model = _scan(tmp_path, pack)
 
-    assert model.messages[0].content == "PRO SYSTEM PROMPT"
+    assert model.messages[0].content.startswith("PRO SYSTEM PROMPT")
     assert PLANNING_PROTOCOL not in model.messages[0].content
     assert model.messages[-1].content.startswith(
         "PRO RUN example.test\nports: 443\n\n"
@@ -83,9 +83,9 @@ def test_planning_protocol_survives_system_and_run_overrides(tmp_path):
 
     model = _scan(tmp_path, pack)
 
-    assert model.messages[0].content == "OVERRIDDEN SYSTEM\n"
+    assert model.messages[0].content.startswith("OVERRIDDEN SYSTEM\n")
     assert PLANNING_PROTOCOL not in model.messages[0].content
-    assert model.messages[-1].content == (
+    assert model.messages[-1].content.startswith(
         "OVERRIDDEN RUN example.test\n\n" + PLANNING_PROTOCOL
     )
 

@@ -129,8 +129,8 @@ def test_run_scan_uses_custom_system_and_run_prompts(tmp_path):
         sandbox=LocalSandbox(str(tmp_path / "work"), unsafe_ok=True),
         session_store=SessionStore(tmp_path / "sessions"),
     )
-    assert model.messages[0].content == "CUSTOM SYSTEM"
-    assert model.messages[-1].content == (
+    assert model.messages[0].content.startswith("CUSTOM SYSTEM")
+    assert model.messages[-1].content.startswith(
         "CUSTOM RUN example.test\nCONTEXT\n\nDONE\n\n" + PLANNING_PROTOCOL
     )
 

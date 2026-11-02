@@ -18,6 +18,14 @@ from .prompts import (
     build_prompt,
     get_prompt_pack,
 )
+from .skills import (
+    Skill,
+    SkillRuntime,
+    declared_tool_unlocks,
+    primary_plan_block,
+    resolve_primary_skill,
+    skill_tools,
+)
 from .thinking import ThinkingModel, prepare_thinking_model
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
@@ -181,6 +189,8 @@ def run_scan(
     store: FindingStore | None = None,
     event_sink: EventSink | None = None,
     prompt_pack: PromptPack | None = None,
+    primary_skill: str | Skill | None = None,
+    skill: str | Skill | None = None,
     thinking: str | None = None,
     token_budget: int | None = None,
     log=None,
@@ -197,6 +207,9 @@ def run_scan(
     store: a FindingStore to persist results to (NullStore if None).
     event_sink: an EventSink to emit an aplomado.scan.completed event to.
     prompt_pack: versioned system/run prompts (the default pack if None).
+    primary_skill: explicit skill id. When supplied it wins over the pack for
+        doctrine and planning, while the pack still supplies the run template.
+        ``skill`` is an alias for callers that use Pro's kwarg name.
     thinking: opt-in reasoning narration: ``"compact"`` or ``"verbose"``.
         Reasoning is sent only to ``log`` and is bounded in both modes.
     trace: optional callable receiving structured sub-agent trace events.
@@ -212,6 +225,8 @@ def run_scan(
         target_binding = TargetBinding.from_host(
             assigned_host or target, reference_hosts=reference_hosts)
     prompts = prompt_pack or get_prompt_pack()
+    selected_skill = primary_skill if primary_skill is not None else skill
+    primary = resolve_primary_skill(selected_skill, prompts)
     effective_log = log or (lambda *args: None)
     model = prepare_thinking_model(resolve_model(model), thinking)
     # The ffuf tool needs the same sandbox instance the agent runs in, so the
@@ -225,22 +240,49 @@ def run_scan(
     # and command execution time-capped.
     sandbox = harden_commands(harden_sandbox(sandbox))
     turn_counter = TurnCounter()
-    base_tools = (
+    skill_runtime = SkillRuntime(
+        primary, log=effective_log, turn_source=turn_counter
+    )
+    skill_tool_list = skill_tools(skill_runtime)
+    skill_tool_names = {tool.name for tool in skill_tool_list}
+    full_tools = (
         [ffuf_tool(sandbox)]
         + _bughunter_tools(sandbox)
         + scratchpad_tools(lambda: sandbox)
         + todo_tools(lambda: sandbox)
         + memory_tools(lambda: sandbox, turn_counter)
+        + skill_tool_list
     )
+    # A tool named by any skill's tool_unlocks is pre-instantiated but held
+    # back from the initial binding. Shipped skills declare none, so this set
+    # is empty in production v1 and the always-on surface is unchanged.
+    gated_tool_names = declared_tool_unlocks(primary)
+    base_tools = [
+        tool for tool in full_tools if tool.name not in gated_tool_names
+    ]
+    unlockable_tools = [
+        tool for tool in full_tools if tool.name in gated_tool_names
+    ]
     # Full tool outputs above the threshold go to scratch/buffers/. Children
-    # get the same store and buffer_read, but cannot delegate further.
+    # get the same store and buffer_read, but cannot delegate further and
+    # cannot load skills in v1.
     buffer_store = BufferStore(sandbox, trace=trace, log=effective_log)
-    child_tools = base_tools + [buffer_read_tool(buffer_store)]
+    buffer_reader = buffer_read_tool(buffer_store)
+    child_tools = [
+        tool for tool in base_tools if tool.name not in skill_tool_names
+    ] + [buffer_reader]
+    # Pro's configured system prompt stays the byte-identical base; the
+    # primary skill's doctrine is appended only.
+    system_prompt = prompts.system_prompt
+    if primary.doctrine.strip():
+        if not system_prompt.endswith("\n"):
+            system_prompt += "\n"
+        system_prompt += "\n" + primary.doctrine.strip() + "\n"
     subagent_runner = SubAgentRunner(
         model=model,
         sandbox=sandbox,
         tools=child_tools,
-        system_prompt=prompts.system_prompt,
+        system_prompt=system_prompt,
         log=effective_log,
         trace=trace,
         thinking=thinking,
@@ -250,12 +292,15 @@ def run_scan(
         turn_counter=turn_counter,
     )
     buffer_store.describe = subagent_runner.elide
+    parent_tools = base_tools + [buffer_reader] + subagent_tools(subagent_runner)
     try:
         agent = PinnaceAgent(
             model=model,
             sandbox=sandbox,
-            tools=child_tools + subagent_tools(subagent_runner),
-            system_prompt=prompts.system_prompt,
+            tools=parent_tools,
+            tool_registry=unlockable_tools,
+            gated_tools=sorted(gated_tool_names),
+            system_prompt=system_prompt,
             max_turns=max_turns,
             session_id=session_id,
             session_store=session_store,
@@ -272,10 +317,19 @@ def run_scan(
         if thinking is not None:
             # Keep agent.model concrete for Pinnace capability checks; only observe
             # the final tool-bound invocation layer.
-            agent.bound = ThinkingModel(agent.bound, thinking, effective_log)
+            agent.set_bound_wrapper(
+                lambda bound: ThinkingModel(bound, thinking, effective_log)
+            )
+        skill_runtime.bind_agent(agent)
+        if primary.tool_unlocks:
+            agent.add_tools(list(primary.tool_unlocks))
+        skill_runtime.preload(target_context)
         agent.coverage_target = target
         run_prompt = build_prompt(target, target_context, prompts)
         run_prompt = f"{run_prompt.rstrip()}\n\n{PLANNING_PROTOCOL}"
+        plan_block = primary_plan_block(primary)
+        if plan_block:
+            run_prompt = f"{run_prompt}\n\n{plan_block}"
         result = agent.run(run_prompt)
         salvaged_partial = bool(getattr(agent, "partial", False))
         salvaged_coverage = getattr(agent, "coverage", None)
@@ -315,6 +369,7 @@ def run_scan(
         "used": int(getattr(result, "turns", 0) or 0),
         "exhausted": bool(getattr(agent, "turn_limit_reached", False)),
     }
+    envelope["skills"] = skill_runtime.envelope()
 
     if token_budget is not None:
         used = 0

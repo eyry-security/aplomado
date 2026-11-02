@@ -219,10 +219,12 @@ class SubAgentRunner:
                     turn_counter=self.turn_counter,
                 )
                 if self.thinking is not None:
-                    agent.bound = ThinkingModel(
-                        agent.bound,
-                        self.thinking,
-                        lambda msg: self._relay_log(subagent_id, msg),
+                    agent.set_bound_wrapper(
+                        lambda bound: ThinkingModel(
+                            bound,
+                            self.thinking,
+                            lambda msg: self._relay_log(subagent_id, msg),
+                        )
                     )
                 self._local.depth = active_depth + 1
                 try:

@@ -12,6 +12,18 @@ from .prompts import (
     get_prompt_pack,
     load_prompt_pack,
 )
+from .skills import (
+    DEFAULT_PRIMARY_SKILL_ID,
+    Skill,
+    SkillError,
+    SkillRuntime,
+    available_skills,
+    get_skill,
+    register_skill,
+    resolve_primary_skill,
+    skill_tools,
+    unregister_skill,
+)
 from .scanner import load_target_file, parse_stdin_record, run_scan
 from .buffers import BUFFER_DIR, BUFFER_THRESHOLD, BufferStore, buffer_read_tool
 from .auth import COOKIE_JAR_PATH, CookieJar, auth_tools
@@ -55,6 +67,7 @@ __all__ = [
     "BUFFER_THRESHOLD",
     "BufferStore",
     "DEFAULT_PROMPT_PACK_ID",
+    "DEFAULT_PRIMARY_SKILL_ID",
     "EventSink",
     "FileSink",
     "FindingStore",
@@ -63,6 +76,15 @@ __all__ = [
     "PromptError",
     "PromptPack",
     "RuttStore",
+    "Skill",
+    "SkillError",
+    "SkillRuntime",
+    "available_skills",
+    "get_skill",
+    "register_skill",
+    "resolve_primary_skill",
+    "skill_tools",
+    "unregister_skill",
     "SEVERITIES",
     "SYSTEM_PROMPT",
     "StdoutSink",
