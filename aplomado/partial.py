@@ -125,18 +125,22 @@ def _todo_ledger(todos: list[dict]) -> str:
     if skipped:
         summary += f" skipped={skipped}"
     highlights = []
+    unreached = []
     for item in todos:
         status = item.get("status")
         note = item.get("note") or ""
+        line = f"[{status or 'pending'}] {item.get('text', '')}"
+        if note:
+            line += f" ({note})"
         if status in {"done", "skipped", "in_progress"} or note:
-            line = f"[{status or 'pending'}] {item.get('text', '')}"
-            if note:
-                line += f" ({note})"
             highlights.append(line)
-        if len(highlights) >= _MAX_TODOS:
-            break
-    if highlights:
-        summary += " — " + "; ".join(highlights)
+        else:
+            unreached.append(line)
+    selected = highlights[:_MAX_TODOS]
+    if len(selected) < _MAX_TODOS:
+        selected.extend(unreached[: _MAX_TODOS - len(selected)])
+    if selected:
+        summary += " — " + "; ".join(selected)
     return summary
 
 

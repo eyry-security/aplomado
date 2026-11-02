@@ -161,6 +161,34 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
             f'Full list: read_file("{TODOS_PATH}")'
         )
 
+    def todos_add(items: list[str]) -> str:
+        """Append new pending tasks without disturbing existing statuses.
+
+        Items whose text exactly matches an existing item (case-insensitive)
+        are skipped. The list is created when it does not exist yet. The
+        result is a compact delta, not the full list.
+        """
+        try:
+            todos = load_todos(sandbox)
+            seen = {item["text"].strip().casefold() for item in todos}
+            changed: list[int] = []
+            added = 0
+            for raw in items:
+                text = str(raw).strip()
+                if not text:
+                    continue
+                key = text.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                todos.append({"text": text, "status": "pending", "note": ""})
+                changed.append(len(todos) - 1)
+                added += 1
+            save_todos(sandbox, todos)
+        except Exception as exc:  # noqa: BLE001 - surface failures to the model
+            return f"error: {exc}"
+        return _format_todo_delta(todos, changed, f"added {added}")
+
     def todos_update(
         index_or_text: int | str,
         status: str,
@@ -195,6 +223,17 @@ def todo_tools(sandbox: SandboxProvider) -> list[BaseTool]:
                 "Replace the run's todo list with short imperative tasks. "
                 "Persists to scratch/todos.json and returns only a compact "
                 "summary; read that file for the full list."
+            ),
+        ),
+        StructuredTool.from_function(
+            todos_add,
+            name="todos_add",
+            description=(
+                "Append new pending tasks to the run's todo list without "
+                "resetting existing statuses. Skips items whose text exactly "
+                "matches an existing item, case-insensitively. Persists to "
+                "scratch/todos.json and returns only a compact delta; read that "
+                "file for the full list."
             ),
         ),
         StructuredTool.from_function(

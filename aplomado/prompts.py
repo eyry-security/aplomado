@@ -70,6 +70,37 @@ SESSION MEMORY GRAPH (scratch/memory.json)
 """
 
 
+PLANNING_PROTOCOL = """\
+PLANNING PROTOCOL (harness-owned)
+1. Phase 0 — plan before testing. Your first action is to write the plan:
+   call todos_write with the planning template for this run — the primary
+   skill's planning template when one is wired in, otherwise the phase
+   structure already in this run prompt — instantiated for this target:
+   recon/inventory first, then one item per test class you intend to run,
+   then verification, then finish(). Use only the context you were given
+   (host, ports, probe results); do not spend test actions before the plan
+   exists. Mark the first item in_progress.
+2. Work the list. Starting an item → todos_update(in_progress). Completing
+   one → done, with the note carrying a result pointer (buffer id, memory
+   node id, artifact path, or finding title), never a prose essay. A class
+   that turns out not to apply → skipped with the reason as the note. An
+   item is not done because you looked; it is done when its check ran or its
+   skip reason is real.
+3. The list is the anchor. If you are unsure what to do next, the answer is
+   in the list: work the first in_progress item, else the first pending one.
+4. After testing starts, never call todos_write again unless the list is
+   corrupt; grow the plan with todos_add so done/skipped state survives.
+RECOVERY RULE
+Re-read state before acting again — read_file("scratch/todos.json") plus
+memory_summary() when the graph exists — whenever any of these happens:
+- a compaction event (the transcript you lost is summarized; the list and
+  graph are not),
+- a sub-agent returns (its summary may have displaced your thread),
+- three consecutive tool errors,
+- you notice you are about to repeat a command you have already run.
+"""
+
+
 # The full security-reviewer system prompt. Changes here require a new pack
 # version so operators can identify exactly which instructions drove a scan.
 SYSTEM_PROMPT = """\

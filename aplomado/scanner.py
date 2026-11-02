@@ -12,7 +12,12 @@ from .agent import AplomadoAgent
 from .findings import normalize_findings
 from .models import DEFAULT_MODEL, resolve_model
 from .fuzz import ffuf_tool
-from .prompts import PromptPack, build_prompt, get_prompt_pack
+from .prompts import (
+    PLANNING_PROTOCOL,
+    PromptPack,
+    build_prompt,
+    get_prompt_pack,
+)
 from .thinking import ThinkingModel, prepare_thinking_model
 from .store import FindingStore, NullStore, resolve_store
 from .events import EventSink, NullSink, build_event
@@ -269,7 +274,9 @@ def run_scan(
             # the final tool-bound invocation layer.
             agent.bound = ThinkingModel(agent.bound, thinking, effective_log)
         agent.coverage_target = target
-        result = agent.run(build_prompt(target, target_context, prompts))
+        run_prompt = build_prompt(target, target_context, prompts)
+        run_prompt = f"{run_prompt.rstrip()}\n\n{PLANNING_PROTOCOL}"
+        result = agent.run(run_prompt)
         salvaged_partial = bool(getattr(agent, "partial", False))
         salvaged_coverage = getattr(agent, "coverage", None)
     finally:

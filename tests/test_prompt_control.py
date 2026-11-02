@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage
 from aplomado.cli import build_parser, main
 from aplomado.prompts import (
     DEFAULT_PROMPT_PACK_ID,
+    PLANNING_PROTOCOL,
     PromptError,
     PromptPack,
     available_prompt_packs,
@@ -129,7 +130,9 @@ def test_run_scan_uses_custom_system_and_run_prompts(tmp_path):
         session_store=SessionStore(tmp_path / "sessions"),
     )
     assert model.messages[0].content == "CUSTOM SYSTEM"
-    assert model.messages[-1].content == "CUSTOM RUN example.test\nCONTEXT\n\nDONE"
+    assert model.messages[-1].content == (
+        "CUSTOM RUN example.test\nCONTEXT\n\nDONE\n\n" + PLANNING_PROTOCOL
+    )
 
 
 def test_scan_parser_exposes_prompt_controls():
