@@ -30,6 +30,7 @@ from pinnace.compaction import (
     estimate_tokens,
     needs_compaction,
 )
+from pinnace.target_guard import guard_tool_call
 from pinnace.tools import parse_finish
 
 from .command_policy import shell_tool
@@ -334,23 +335,35 @@ class AplomadoAgent(PinnaceAgent):
                 call_id = call.get("id", "")
                 args = call.get("args", {}) or {}
                 tool = self._tools_by_name.get(name)
-                self._say(f"[pinnace] tool: {name}({str(args)[:120]})")
-                if tool is None:
-                    out = f"error: unknown tool {name!r}"
+                reason = guard_tool_call(self.target_binding, name, args)
+                if reason:
+                    out = reason
+                    self._say(f"[pinnace] target-rejected: {name}: {reason}")
                     self._say(f"[pinnace] tool-result: {name} -> {out}")
                 else:
-                    try:
-                        result = tool.invoke(args)
-                        out = str(result)
-                        if self.buffer_store is not None and name != "finish":
-                            out = self.buffer_store.maybe_buffer(name, result)
-                        out_preview = out[:500].replace(chr(10), " ")
-                        self._say(
-                            f"[pinnace] tool-result: {name} -> {out_preview}"
-                        )
-                    except Exception as e:  # noqa: BLE001 - model sees failures
-                        out = f"error: {e}"
-                        self._say(f"[pinnace] tool-result: {name} -> error: {e}")
+                    self._say(f"[pinnace] tool: {name}({str(args)[:120]})")
+                    if tool is None:
+                        out = f"error: unknown tool {name!r}"
+                        self._say(f"[pinnace] tool-result: {name} -> {out}")
+                    else:
+                        try:
+                            result = tool.invoke(args)
+                            if (self.target_binding is not None
+                                    and name != "finish"):
+                                result = self.target_binding.filter_result(result)
+                            out = str(result)
+                            if (self.buffer_store is not None
+                                    and name != "finish"):
+                                out = self.buffer_store.maybe_buffer(name, result)
+                            out_preview = out[:500].replace(chr(10), " ")
+                            self._say(
+                                f"[pinnace] tool-result: {name} -> {out_preview}"
+                            )
+                        except Exception as e:  # noqa: BLE001 - model sees failures
+                            out = f"error: {e}"
+                            self._say(
+                                f"[pinnace] tool-result: {name} -> error: {e}"
+                            )
                 messages.append(
                     ToolMessage(content=out, tool_call_id=call_id, name=name)
                 )

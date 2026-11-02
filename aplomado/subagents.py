@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 from langchain_core.tools import BaseTool, StructuredTool
 from pinnace import Sandbox
+from pinnace.target_guard import TargetBinding
 
 from .agent import AplomadoAgent
 from .thinking import ThinkingModel
@@ -65,16 +66,19 @@ def summarize_result(result) -> str:
     return ""
 
 
-def _child_prompt(task: str, context: str) -> str:
+def _child_prompt(task: str, context: str, assigned_host: str = "") -> str:
     context_block = context.strip() or "(none)"
+    bound = (f" This review is bound to {assigned_host}." if assigned_host
+             else "")
     return (
         f"{SUBAGENT_TASK_MARKER}\n{task.strip()}\n\n"
         f"CONTEXT\n{context_block}\n\n"
         "You are a depth-1 sub-agent working for the parent scan. You cannot "
-        "delegate further. Test only the host assigned to the parent target; "
-        "treat other hosts in the task or context as context only — never "
-        "test them or file findings about them. Use the available tools, stay "
-        "within scope, and then call finish() with a JSON object like "
+        f"delegate further.{bound} Test only the host assigned to the parent "
+        "target; treat other hosts in the task or context as context only — "
+        "never test them or file findings about them. The tool layer rejects "
+        "any call outside that host. Use the available tools, stay within "
+        "scope, and then call finish() with a JSON object like "
         '{"summary": "<concise result>"} or reply with your concise summary. '
         "Return only what the parent needs; do not paste raw bulk output."
     )
@@ -94,6 +98,7 @@ class SubAgentRunner:
         trace: TraceCallback | None = None,
         thinking: str | None = None,
         buffer_store=None,
+        target_binding: TargetBinding | None = None,
     ) -> None:
         self.model = model
         self.sandbox = sandbox
@@ -103,6 +108,7 @@ class SubAgentRunner:
         self.trace = trace
         self.thinking = thinking
         self.buffer_store = buffer_store
+        self.target_binding = target_binding
         self._lock = threading.Lock()
         self._counter = 0
         self._semaphore = threading.BoundedSemaphore(MAX_ACTIVE_SUBAGENTS)
@@ -146,6 +152,7 @@ class SubAgentRunner:
         label: str = "delegate",
         depth: int = 0,
         trace_task: str | None = None,
+        enforce_brief: bool = True,
     ) -> str:
         """Run one child agent and return its summary text."""
         active_depth = getattr(self._local, "depth", 0)
@@ -153,6 +160,12 @@ class SubAgentRunner:
             return "error: nested delegation is not allowed (depth 1)"
         if not isinstance(task, str) or not task.strip():
             return "error: task must be a non-empty string"
+        if enforce_brief and self.target_binding is not None:
+            for value in (task, context):
+                reason = self.target_binding.check_text(
+                    value, allow_reference=True)
+                if reason:
+                    return reason
         try:
             budget = clamp_subagent_turns(max_turns)
         except ValueError as exc:
@@ -183,6 +196,7 @@ class SubAgentRunner:
                     max_turns=budget,
                     log=lambda msg: self._relay_log(subagent_id, msg),
                     buffer_store=self.buffer_store,
+                    target_binding=self.target_binding,
                 )
                 if self.thinking is not None:
                     agent.bound = ThinkingModel(
@@ -192,7 +206,9 @@ class SubAgentRunner:
                     )
                 self._local.depth = active_depth + 1
                 try:
-                    result = agent.run(_child_prompt(task, context))
+                    assigned = (self.target_binding.assigned_host
+                                if self.target_binding is not None else "")
+                    result = agent.run(_child_prompt(task, context, assigned))
                 finally:
                     self._local.depth = active_depth
         except Exception as exc:  # noqa: BLE001 - parent sees the failure
@@ -243,6 +259,7 @@ class SubAgentRunner:
             task,
             label="elide",
             trace_task=f"output elision: {question.strip()}",
+            enforce_brief=False,
         )
 
 

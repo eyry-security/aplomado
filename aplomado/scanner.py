@@ -6,6 +6,7 @@ import json
 import os
 
 from pinnace.sandbox import DockerSandbox, SandboxError
+from pinnace.target_guard import TargetBinding
 
 from .agent import AplomadoAgent
 from .findings import normalize_findings
@@ -178,6 +179,9 @@ def run_scan(
     token_budget: int | None = None,
     log=None,
     trace=None,
+    target_binding: TargetBinding | None = None,
+    assigned_host: str | None = None,
+    reference_hosts=None,
 ) -> dict:
     """Run one scan and return the normalized findings envelope.
 
@@ -195,7 +199,12 @@ def run_scan(
     token_budget: optional per-scan token ceiling. When the agent reaches it,
         it stops launching tests and asks the model for a finish() payload so
         partial findings are kept. None disables the leash.
+    target_binding: optional host binding. When absent, one is derived from
+        ``assigned_host`` or ``target`` so a scan can never act on another host.
     """
+    if target_binding is None:
+        target_binding = TargetBinding.from_host(
+            assigned_host or target, reference_hosts=reference_hosts)
     prompts = prompt_pack or get_prompt_pack()
     effective_log = log or (lambda *args: None)
     model = prepare_thinking_model(resolve_model(model), thinking)
@@ -228,6 +237,7 @@ def run_scan(
         trace=trace,
         thinking=thinking,
         buffer_store=buffer_store,
+        target_binding=target_binding,
     )
     buffer_store.describe = subagent_runner.elide
     try:
@@ -241,6 +251,7 @@ def run_scan(
             session_store=session_store,
             log=effective_log,
             buffer_store=buffer_store,
+            target_binding=target_binding,
         )
         if token_budget is not None:
             try:
