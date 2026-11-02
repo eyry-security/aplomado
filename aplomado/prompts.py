@@ -51,6 +51,25 @@ class PromptPack:
         return _PROMPT_TOKEN.sub(lambda match: values[match.group(1)], self.run_prompt_template)
 
 
+MEMORY_DISCIPLINE = """\
+SESSION MEMORY GRAPH (scratch/memory.json)
+- Remember as you go: every newly discovered endpoint, parameter, technology
+  fingerprint, and auth state becomes a memory_remember node in the same turn
+  it is discovered — not batched for later. Repeating the same kind+key
+  upserts the existing node instead of duplicating it.
+- A hypothesis gets a node before you test it; testing updates its status
+  (confirmed / ruled_out) and links evidence_for edges to the artifact or
+  endpoint nodes. Every finding you file at finish() should trace to a graph
+  node.
+- Before starting a new test phase, and after any compaction, call
+  memory_summary (and memory_recall for the area you are entering) instead of
+  re-running discovery. The graph is authoritative for facts; the transcript
+  summary is not.
+- Credential nodes record references only — username, where the session is
+  kept (cookie jar / auth tool), and scope of access — never secret values.
+"""
+
+
 # The full security-reviewer system prompt. Changes here require a new pack
 # version so operators can identify exactly which instructions drove a scan.
 SYSTEM_PROMPT = """\
@@ -170,7 +189,7 @@ finding describing what you checked. Severity guide: critical = remotely
 exploitable now; high = serious weakness, likely exploitable; medium =
 misconfiguration that aids an attacker; low = hygiene issue; info = observation
 worth noting.
-"""
+""" + "\n" + MEMORY_DISCIPLINE
 
 HOST_DISCIPLINE_TEMPLATE = """\
 HOST DISCIPLINE
@@ -354,7 +373,7 @@ Emit one info finding describing what you checked. Severity guide: critical =
 remotely exploitable now; high = serious weakness, likely exploitable; medium =
 misconfiguration that aids an attacker; low = hygiene issue; info = observation
 worth noting.
-"""
+""" + "\n" + MEMORY_DISCIPLINE
 
 BUGHUNTER_RUN_PROMPT_TEMPLATE = (
     "TARGET: {target}\n\n"

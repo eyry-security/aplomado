@@ -43,6 +43,11 @@ from .partial import (
 from .todos import load_todos
 
 PAIRING_RETRY_DELAYS = (0.25, 0.5, 1.0)
+COMPACTION_SUMMARY_PROMPT = SUMMARIZE_PROMPT + (
+    "\n\nFacts recorded in the session memory graph (scratch/memory.json) are "
+    "authoritative and are NOT restated in this summary. The summary covers "
+    "only intent, sequence, and open questions."
+)
 
 
 def _invoke_with_pairing_repair(model, messages, *, log=None, kind="request"):
@@ -117,7 +122,7 @@ def _compact_messages(model, messages, keep_last, on_response=None, log=None):
     to_summarize = messages[body_start:cut]
     tail = messages[cut:]
 
-    request = [SystemMessage(content=SUMMARIZE_PROMPT), *to_summarize]
+    request = [SystemMessage(content=COMPACTION_SUMMARY_PROMPT), *to_summarize]
     response, _ = _invoke_with_pairing_repair(
         model, request, log=log, kind="compaction request"
     )
@@ -145,10 +150,18 @@ def _compact_messages(model, messages, keep_last, on_response=None, log=None):
 class AplomadoAgent(PinnaceAgent):
     """A PinnaceAgent whose tool-call turns are always fully answered."""
 
-    def __init__(self, *args, buffer_store=None, token_budget=None, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        buffer_store=None,
+        token_budget=None,
+        turn_counter=None,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.buffer_store = buffer_store
         self.token_budget = token_budget
+        self.turn_counter = turn_counter
         self.coverage_target = None
         self.partial = False
         self.coverage = None
@@ -235,6 +248,10 @@ class AplomadoAgent(PinnaceAgent):
 
         while turns < self.max_turns:
             turns += 1
+            if self.turn_counter is not None:
+                setter = getattr(self.turn_counter, "set", None)
+                if callable(setter):
+                    setter(turns)
             messages = repair_tool_pairs(messages)
             if self.token_budget and _usage_tokens(usage_records) >= self.token_budget:
                 budget_hit = True

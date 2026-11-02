@@ -19,6 +19,7 @@ from .events import EventSink, NullSink, build_event
 from .write_policy import harden_sandbox
 from .command_policy import harden_commands
 from .scratchpad import scratchpad_tools
+from .memory import TurnCounter, memory_tools
 from .todos import todo_tools
 from .buffers import BufferStore, buffer_read_tool
 from .subagents import SubAgentRunner, subagent_tools
@@ -218,11 +219,13 @@ def run_scan(
     # Harden the sandbox: writes jailed to scratch/, sensitive paths blocked,
     # and command execution time-capped.
     sandbox = harden_commands(harden_sandbox(sandbox))
+    turn_counter = TurnCounter()
     base_tools = (
         [ffuf_tool(sandbox)]
         + _bughunter_tools(sandbox)
         + scratchpad_tools(lambda: sandbox)
         + todo_tools(lambda: sandbox)
+        + memory_tools(lambda: sandbox, turn_counter)
     )
     # Full tool outputs above the threshold go to scratch/buffers/. Children
     # get the same store and buffer_read, but cannot delegate further.
@@ -239,6 +242,7 @@ def run_scan(
         buffer_store=buffer_store,
         target_binding=target_binding,
         parent_max_turns=max_turns,
+        turn_counter=turn_counter,
     )
     buffer_store.describe = subagent_runner.elide
     try:
@@ -253,6 +257,7 @@ def run_scan(
             log=effective_log,
             buffer_store=buffer_store,
             target_binding=target_binding,
+            turn_counter=turn_counter,
         )
         if token_budget is not None:
             try:
