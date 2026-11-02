@@ -33,10 +33,25 @@ SUMMARIZE_KEYS = ("summary", "answer", "result", "output")
 TraceCallback = Callable[[dict], None]
 
 
-def clamp_subagent_turns(max_turns: int | None) -> int:
-    """Return a valid child turn budget (default 30, capped at 60)."""
+def clamp_subagent_turns(max_turns: int | None, parent_max_turns: int) -> int:
+    """Return a child turn budget derived from the parent's turn budget.
+
+    The default is a quarter of the parent budget (10..30); the hard cap is
+    half the parent budget (10..60). At a 200-turn parent this is the familiar
+    30 default / 60 cap; at the standalone 30-turn parent it is 10 / 15.
+    """
+    if isinstance(parent_max_turns, bool):
+        raise ValueError("parent_max_turns must be an integer")
+    try:
+        parent = int(parent_max_turns)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("parent_max_turns must be an integer") from exc
+    if parent < 1:
+        raise ValueError("parent_max_turns must be at least 1")
+    default_turns = min(DEFAULT_SUBAGENT_TURNS, max(10, parent // 4))
+    cap = min(MAX_SUBAGENT_TURNS, max(10, parent // 2))
     if max_turns is None:
-        return DEFAULT_SUBAGENT_TURNS
+        return default_turns
     if isinstance(max_turns, bool):
         raise ValueError("max_turns must be an integer")
     try:
@@ -45,7 +60,7 @@ def clamp_subagent_turns(max_turns: int | None) -> int:
         raise ValueError("max_turns must be an integer") from exc
     if turns < 1:
         raise ValueError("max_turns must be at least 1")
-    return min(turns, MAX_SUBAGENT_TURNS)
+    return min(turns, cap)
 
 
 def summarize_result(result) -> str:
@@ -99,6 +114,7 @@ class SubAgentRunner:
         thinking: str | None = None,
         buffer_store=None,
         target_binding: TargetBinding | None = None,
+        parent_max_turns: int = 200,
     ) -> None:
         self.model = model
         self.sandbox = sandbox
@@ -109,6 +125,7 @@ class SubAgentRunner:
         self.thinking = thinking
         self.buffer_store = buffer_store
         self.target_binding = target_binding
+        self.parent_max_turns = parent_max_turns
         self._lock = threading.Lock()
         self._counter = 0
         self._semaphore = threading.BoundedSemaphore(MAX_ACTIVE_SUBAGENTS)
@@ -148,7 +165,7 @@ class SubAgentRunner:
         task: str,
         context: str = "",
         *,
-        max_turns: int | None = DEFAULT_SUBAGENT_TURNS,
+        max_turns: int | None = None,
         label: str = "delegate",
         depth: int = 0,
         trace_task: str | None = None,
@@ -167,7 +184,7 @@ class SubAgentRunner:
                 if reason:
                     return reason
         try:
-            budget = clamp_subagent_turns(max_turns)
+            budget = clamp_subagent_turns(max_turns, self.parent_max_turns)
         except ValueError as exc:
             return f"error: {exc}"
 
@@ -269,12 +286,13 @@ def delegate_task_tool(runner: SubAgentRunner) -> BaseTool:
     def delegate_task(
         task: str,
         context: str = "",
-        max_turns: int = DEFAULT_SUBAGENT_TURNS,
+        max_turns: int | None = None,
     ) -> str:
         """Delegate one focused task to a depth-1 sub-agent.
 
         The child shares this run's sandbox and workdir and returns only its
-        summary. max_turns defaults to 30 and is capped at 60.
+        summary. max_turns defaults to a quarter of the parent budget and is
+        capped at half of it.
         """
         return runner.run(task, context, max_turns=max_turns)
 
@@ -284,7 +302,8 @@ def delegate_task_tool(runner: SubAgentRunner) -> BaseTool:
         description=(
             "Delegate one focused task to a depth-1 sub-agent that shares "
             "your sandbox/workdir. Give it a clear task and any context; it "
-            "returns a concise summary. max_turns defaults to 30, max 60. "
+            "returns a concise summary. max_turns defaults to a quarter of "
+            "your turn budget and cannot exceed half of it. "
             "Sub-agents cannot delegate further."
         ),
     )

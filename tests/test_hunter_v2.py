@@ -1,4 +1,4 @@
-"""Pipeline v2 / S2: active-hunter schema, tool belt, and token leash."""
+"""Pipeline v2 / S2: active-hunter schema, tool belt, and token ceiling."""
 
 import json
 

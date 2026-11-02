@@ -198,7 +198,7 @@ def run_scan(
         sub-agent id.
     token_budget: optional per-scan token ceiling. When the agent reaches it,
         it stops launching tests and asks the model for a finish() payload so
-        partial findings are kept. None disables the leash.
+        partial findings are kept. None disables the ceiling.
     target_binding: optional host binding. When absent, one is derived from
         ``assigned_host`` or ``target`` so a scan can never act on another host.
     """
@@ -238,6 +238,7 @@ def run_scan(
         thinking=thinking,
         buffer_store=buffer_store,
         target_binding=target_binding,
+        parent_max_turns=max_turns,
     )
     buffer_store.describe = subagent_runner.elide
     try:
@@ -292,6 +293,16 @@ def run_scan(
     if salvaged_partial:
         envelope["partial"] = True
         envelope["coverage"] = salvaged_coverage or ""
+
+    try:
+        turn_limit = max(1, int(max_turns))
+    except (TypeError, ValueError):
+        turn_limit = 30
+    envelope["turn_budget"] = {
+        "limit": turn_limit,
+        "used": int(getattr(result, "turns", 0) or 0),
+        "exhausted": bool(getattr(agent, "turn_limit_reached", False)),
+    }
 
     if token_budget is not None:
         used = 0

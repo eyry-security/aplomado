@@ -80,7 +80,10 @@ def _sandbox():
     return sandbox
 
 
-def _run(tmp_path, model, sandbox=None, trace=None, log=None):
+def _run(tmp_path, model, sandbox=None, trace=None, log=None, max_turns=None):
+    kwargs = {}
+    if max_turns is not None:
+        kwargs["max_turns"] = max_turns
     return run_scan(
         "https://example.com",
         model=model,
@@ -88,6 +91,7 @@ def _run(tmp_path, model, sandbox=None, trace=None, log=None):
         session_store=SessionStore(tmp_path / "sessions"),
         log=log or (lambda *args: None),
         trace=trace,
+        **kwargs,
     )
 
 
@@ -135,7 +139,7 @@ def test_delegate_runs_child_returns_summary_and_tags_trace(tmp_path):
         "subagent sub-1" in line and "tool: shell" in line for line in log
     )
     assert any(
-        "subagent sub-1" in line and "turn 1/30" in line for line in log
+        "subagent sub-1" in line and "turn 1/10" in line for line in log
     )
 
     # The parent gets the child summary as the delegate_task tool result.
@@ -168,7 +172,7 @@ def test_delegate_turn_budget_is_capped_at_60(tmp_path):
     ]
     model = ScriptedModel(parent_script, [_finish("child done")])
 
-    _run(tmp_path, model, trace=trace.append)
+    _run(tmp_path, model, trace=trace.append, max_turns=200)
 
     started = [e for e in trace if e["type"] == "subagent.started"]
     assert started[0]["max_turns"] == MAX_SUBAGENT_TURNS
@@ -294,8 +298,14 @@ def test_elide_reads_a_scratch_file_without_returning_it(tmp_path):
 
 def test_turn_budget_helper_defaults_and_caps():
     assert DEFAULT_SUBAGENT_TURNS == 30
-    assert clamp_subagent_turns(None) == 30
-    assert clamp_subagent_turns(10) == 10
-    assert clamp_subagent_turns(1000) == 60
+    assert MAX_SUBAGENT_TURNS == 60
+    assert clamp_subagent_turns(None, 200) == 30
+    assert clamp_subagent_turns(None, 30) == 10
+    assert clamp_subagent_turns(10, 200) == 10
+    assert clamp_subagent_turns(1000, 200) == 60
+    assert clamp_subagent_turns(1000, 30) == 15
+    assert clamp_subagent_turns(1000, 10) == 10
     with pytest.raises(ValueError):
-        clamp_subagent_turns(0)
+        clamp_subagent_turns(0, 200)
+    with pytest.raises(ValueError):
+        clamp_subagent_turns(None, 0)

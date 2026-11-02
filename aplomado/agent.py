@@ -231,6 +231,7 @@ class AplomadoAgent(PinnaceAgent):
         final: str | None = None
         usage_records: list[dict] = []
         budget_hit = False
+        self.turn_limit_reached = False
 
         while turns < self.max_turns:
             turns += 1
@@ -376,19 +377,28 @@ class AplomadoAgent(PinnaceAgent):
                 break
         else:
             self._say(f"[pinnace] hit max_turns={self.max_turns}")
+            self.turn_limit_reached = True
 
         # A scan that exhausts its active-testing budget still deserves a
         # chance to emit the findings it already confirmed. Ask for a
         # finish()-only wrap-up turn instead of silently returning nothing.
         if structured is None and final is None:
             reason = "TOKEN BUDGET REACHED" if budget_hit else "TURN LIMIT REACHED"
+            disclosure = (
+                "The coverage statement must disclose that the token "
+                "ceiling was reached."
+                if budget_hit else
+                "The coverage statement must disclose that the turn limit "
+                "was reached."
+            )
             self._say(
                 f"[pinnace] {reason.lower()} — requesting finish payload"
             )
             messages.append(HumanMessage(content=(
                 f"{reason}. Do not run any more tests. Call finish() "
                 "exactly once now with your findings JSON. Include every "
-                "confirmed finding and the coverage ledger you have so far."
+                "confirmed finding and the coverage ledger you have so far. "
+                f"{disclosure}"
             )))
             for _ in range(2):
                 try:
