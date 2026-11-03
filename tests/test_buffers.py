@@ -11,7 +11,7 @@ from aplomado.buffers import (
     FullOutput,
 )
 from aplomado.scanner import run_scan
-from test_fuzz import StubSandbox
+from stub_sandbox import StubSandbox
 from test_subagents import ScriptedModel, _finish, _sandbox, _tc
 
 

@@ -294,7 +294,7 @@ def auth_tools(cookie_jar: CookieJar) -> list[BaseTool]:
         "session=abc123; csrftoken=xyz" (DevTools → Application →
         Cookies). authorization: bearer token or full "Authorization: …"
         value. Stored ONCE, then injected into every bughunter tool
-        (katana, nuclei, dalfox, ffuf, curl checks). Values are never
+        (katana, nuclei, dalfox, curl checks). Values are never
         echoed back or logged.
         """
         if cookies.strip():

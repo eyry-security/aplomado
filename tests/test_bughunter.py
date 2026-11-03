@@ -1,5 +1,5 @@
 """Tests for the bughunter toolset (aplomado.crawl / nuclei / xss / sqli /
-params / jsrecon / auth) and the bughunter-v1 prompt pack.
+jsrecon / auth) and the bughunter-v1 prompt pack.
 
 Everything runs against stub sandboxes — no Docker, no network, no API keys.
 """
@@ -12,7 +12,6 @@ from langchain_core.tools import BaseTool
 from aplomado.auth import CookieJar, auth_tools
 from aplomado.crawl import crawl_tools, hakrawler_tool, katana_tool
 from aplomado.nuclei import nuclei_tool
-from aplomado.params import param_discovery_tool
 from aplomado.prompts import get_prompt_pack
 from aplomado.sqli import sqli_tool
 from aplomado.xss import dalfox_tool
@@ -191,35 +190,6 @@ def test_sqli_error_indicator_escalates():
     assert any(c.startswith("sqlmap ") and "-p" in c for c in sb.commands)
     # Proof limited: --banner, no --dump
     assert not any("--dump" in c for c in sb.commands)
-
-
-# ---------------------------------------------------------------------------
-# params.py
-
-
-def test_discover_params_reports_live_ones():
-    sb = StubSandbox()
-
-    def fake_exec(cmd, timeout=120.0):
-        sb.commands.append(cmd)
-        body = "x" * (5000 if "debug=x" in cmd else 1000)
-        return ExecResult(f"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n{body}", "", 0)
-
-    sb.exec = fake_exec
-    tool = param_discovery_tool(sb)
-    out = tool.invoke({"url": "https://example.com/page"})
-    assert "debug" in out
-    assert "baseline: 200 1000 bytes" in out
-
-
-def test_discover_params_baseline_failure():
-    sb = StubSandbox()
-    sb.exec_scripts["curl -sk"] = ExecResult("", "", 7)
-    # fake a failing baseline via status 0
-    sb.exec = lambda cmd, timeout=120.0: ExecResult("", "", 0) if False else ExecResult("garbage", "", 0)
-    tool = param_discovery_tool(sb)
-    out = tool.invoke({"url": "https://example.com/page"})
-    assert "baseline" in out.lower() or "error" in out.lower()
 
 
 # ---------------------------------------------------------------------------

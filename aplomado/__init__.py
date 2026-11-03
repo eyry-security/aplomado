@@ -48,7 +48,6 @@ from .crawl import crawl_tools, hakrawler_tool, katana_tool
 from .nuclei import nuclei_tool
 from .xss import dalfox_tool
 from .sqli import sqli_tool
-from .params import param_discovery_tool
 from .jsrecon import js_recon_tool
 from .store import FindingStore, NullStore, RuttStore, resolve_store
 from .wordlists import Wordlist, get_wordlist, list_wordlists, read_wordlist
@@ -131,6 +130,5 @@ __all__ = [
     "nuclei_tool",
     "dalfox_tool",
     "sqli_tool",
-    "param_discovery_tool",
     "js_recon_tool",
 ]

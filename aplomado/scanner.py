@@ -11,7 +11,6 @@ from pinnace.target_guard import TargetBinding
 from .agent import AplomadoAgent
 from .findings import normalize_findings
 from .models import DEFAULT_MODEL, resolve_model
-from .fuzz import ffuf_tool
 from .prompts import (
     PLANNING_PROTOCOL,
     PromptPack,
@@ -42,7 +41,6 @@ from .crawl import crawl_tools
 from .nuclei import nuclei_tool
 from .xss import dalfox_tool
 from .sqli import sqli_tool
-from .params import param_discovery_tool
 from .jsrecon import js_recon_tool
 from .rawhttp import curl_tool
 
@@ -171,7 +169,6 @@ def _bughunter_tools(sandbox) -> list:
             nuclei_tool(sandbox, jar),
             dalfox_tool(sandbox, jar),
             sqli_tool(sandbox, jar),
-            param_discovery_tool(sandbox, jar),
             js_recon_tool(sandbox, jar),
         ]
     )
@@ -229,7 +226,7 @@ def run_scan(
     primary = resolve_primary_skill(selected_skill, prompts)
     effective_log = log or (lambda *args: None)
     model = prepare_thinking_model(resolve_model(model), thinking)
-    # The ffuf tool needs the same sandbox instance the agent runs in, so the
+    # Tools are bound to the same sandbox instance the agent runs in, so the
     # default DockerSandbox is built here (not inside PinnaceAgent) and torn
     # down after the run.
     own_sandbox = False
@@ -246,8 +243,7 @@ def run_scan(
     skill_tool_list = skill_tools(skill_runtime)
     skill_tool_names = {tool.name for tool in skill_tool_list}
     full_tools = (
-        [ffuf_tool(sandbox)]
-        + _bughunter_tools(sandbox)
+        _bughunter_tools(sandbox)
         + scratchpad_tools(lambda: sandbox)
         + todo_tools(lambda: sandbox)
         + memory_tools(lambda: sandbox, turn_counter)

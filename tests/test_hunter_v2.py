@@ -1,18 +1,19 @@
 """Pipeline v2 / S2: active-hunter schema, tool belt, and token ceiling."""
 
 import json
+from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
+import aplomado
 from aplomado.agent import AplomadoAgent
 from aplomado.findings import Finding, normalize_findings
 from aplomado.prompts import BUGHUNTER_SYSTEM_PROMPT, SYSTEM_PROMPT
 from aplomado.scanner import _bughunter_tools, run_scan
-from aplomado.fuzz import ffuf_tool
 from pinnace import LocalSandbox
 from pinnace.session import SessionStore
 
-from test_fuzz import StubSandbox
+from stub_sandbox import StubSandbox
 
 
 def _tc(name, args, i):
@@ -37,12 +38,28 @@ def _usage(inp, out):
             "total_tokens": inp + out}
 
 
-def test_agent_toolbelt_includes_fuzz_curl_crawl_js_auth():
+def test_agent_toolbelt_includes_curl_crawl_js_auth_without_fuzzing():
     sandbox = StubSandbox()
-    names = {tool.name for tool in [ffuf_tool(sandbox)] + _bughunter_tools(sandbox)}
-    assert {"ffuf", "curl", "katana", "hakrawler", "js_recon",
-            "discover_params", "nuclei", "dalfox", "sqli",
+    names = {tool.name for tool in _bughunter_tools(sandbox)}
+    assert {"curl", "katana", "hakrawler", "js_recon",
+            "nuclei", "dalfox", "sqli",
             "set_auth_session", "show_auth_status"} <= names
+    assert not {"ffuf", "fuzz", "discover_params"} & names
+
+
+def test_toolset_has_no_fuzz_tools_but_sandbox_ships_ffuf():
+    sandbox = StubSandbox()
+    names = {tool.name for tool in _bughunter_tools(sandbox)}
+    assert not {"ffuf", "fuzz", "discover_params"} & names
+    assert not hasattr(aplomado, "ffuf_tool")
+    assert not hasattr(aplomado, "param_discovery_tool")
+
+    root = Path(__file__).resolve().parents[1]
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8").lower()
+    binaries = (root / "aplomado" / "binaries.py").read_text(encoding="utf-8").lower()
+    assert "ffuf" in dockerfile
+    assert "/usr/local/bin/ffuf" in dockerfile
+    assert "ffuf" in binaries
 
 
 def test_finding_schema_coerces_and_drops_malformed():
@@ -61,10 +78,11 @@ def test_finding_schema_coerces_and_drops_malformed():
     assert f["repro"] == ["inject", "observe"]
 
 
-def test_prompts_use_active_hunting_posture():
+def test_prompts_use_targeted_hunting_posture():
     for prompt in (SYSTEM_PROMPT, BUGHUNTER_SYSTEM_PROMPT):
         text = prompt.lower()
-        assert "fuzz every input" in text
+        assert "brute-force enumeration" in text
+        assert "fuzz every input" not in text
         assert "decompile" in text
         assert "sourcemap" in text
         assert "vuln_class" in text

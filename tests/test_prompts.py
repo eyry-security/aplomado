@@ -22,6 +22,29 @@ def test_system_prompt_has_severity_levels():
         assert level in SYSTEM_PROMPT
 
 
+def test_assembled_prompts_keep_ffuf_as_shell_tool_without_fuzz_mandate():
+    from aplomado.prompts import BUGHUNTER_SYSTEM_PROMPT, get_prompt_pack
+
+    for text in (SYSTEM_PROMPT, BUGHUNTER_SYSTEM_PROMPT):
+        assert "ffuf (via shell)" in text.lower()
+
+    texts = [
+        SYSTEM_PROMPT,
+        BUGHUNTER_SYSTEM_PROMPT,
+        build_prompt("https://example.com"),
+        build_prompt(
+            "https://example.com",
+            prompt_pack=get_prompt_pack("bughunter-v1"),
+        ),
+    ]
+    for text in texts:
+        lower = text.lower()
+        assert "discover_params" not in lower
+        assert "fuzz every input" not in lower
+        assert "http mode" not in lower
+        assert "fuzz keyword" not in lower
+
+
 def test_build_prompt_basic():
     prompt = build_prompt("https://example.com")
     assert "TARGET: https://example.com" in prompt

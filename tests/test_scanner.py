@@ -11,7 +11,6 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from aplomado.cli import build_parser
 from aplomado.findings import SEVERITIES
-from aplomado.fuzz import FATHOM_BIN, FFUF_BIN
 from aplomado.scanner import (
     AplomadoError,
     build_prompt,
@@ -22,7 +21,7 @@ from aplomado.scanner import (
 from pinnace import LocalSandbox
 from pinnace.sandbox import DockerSandbox, ExecResult, SandboxError
 from pinnace.session import SessionStore
-from test_fuzz import StubSandbox
+from stub_sandbox import StubSandbox
 
 
 def _tc(name, args, i):
@@ -337,14 +336,11 @@ def test_all_finding_severities_valid(tmp_path):
     assert all(f["severity"] in SEVERITIES for f in env["findings"])
 
 
-def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
+def test_run_scan_does_not_wire_ffuf_tool_into_agent(tmp_path):
     class IsolatedStubSandbox(StubSandbox, DockerSandbox):
         pass
 
     sb = IsolatedStubSandbox()
-    sb.exec_scripts[f"test -x /usr/local/bin/{FATHOM_BIN}"] = ExecResult("", "", 1)
-    sb.exec_scripts[f"test -x /usr/local/bin/{FFUF_BIN}"] = ExecResult("", "", 0)
-    sb.exec_scripts[f"{FFUF_BIN} "] = ExecResult("admin  [Status: 200]\n", "", 0)
     # WritePolicySandbox symlink check: no symlinks in the stub
     sb.exec_scripts["[ -L"] = ExecResult("", "", 1)
     env = run_scan(
@@ -365,9 +361,7 @@ def test_run_scan_wires_ffuf_tool_into_agent(tmp_path):
         session_store=SessionStore(tmp_path / "sessions"),
         log=lambda *a: None,
     )
-    runs = [c for c in sb.commands if c.startswith(f"{FFUF_BIN} ")]
-    assert len(runs) == 1
-    assert "example.com/FUZZ" in runs[0]
+    assert not any(c.startswith("ffuf ") for c in sb.commands)
     assert env["findings"][0]["title"] == "Server header leaks version"
 
 
@@ -384,7 +378,11 @@ def test_run_scan_no_docker_gives_helpful_error(monkeypatch):
         )
 
 
-def test_system_prompt_mentions_ffuf_tool():
+def test_system_prompt_has_no_fuzzing_tool():
     from aplomado.prompts import SYSTEM_PROMPT
 
-    assert "ffuf(" in SYSTEM_PROMPT
+    lower = SYSTEM_PROMPT.lower()
+    assert "ffuf (via shell)" in lower
+    assert "ffuf(" not in lower
+    assert "discover_params" not in lower
+    assert "fuzz every input" not in lower

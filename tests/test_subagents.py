@@ -8,7 +8,7 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from pinnace import DockerSandbox, ExecResult
 from pinnace.session import SessionStore
-from test_fuzz import StubSandbox
+from stub_sandbox import StubSandbox
 
 from aplomado.scanner import run_scan
 from aplomado.subagents import (
