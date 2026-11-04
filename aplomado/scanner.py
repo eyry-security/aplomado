@@ -9,6 +9,7 @@ from pinnace.sandbox import DockerSandbox, SandboxError
 from pinnace.target_guard import TargetBinding
 
 from .agent import AplomadoAgent
+from .budget import ScanBudget
 from .findings import normalize_findings
 from .models import DEFAULT_MODEL, resolve_model
 from .prompts import (
@@ -236,6 +237,7 @@ def run_scan(
     # Harden the sandbox: writes jailed to scratch/, sensitive paths blocked,
     # and command execution time-capped.
     sandbox = harden_commands(harden_sandbox(sandbox))
+    budget = ScanBudget.from_env()
     turn_counter = TurnCounter()
     skill_runtime = SkillRuntime(
         primary, log=effective_log, turn_source=turn_counter
@@ -286,6 +288,7 @@ def run_scan(
         target_binding=target_binding,
         parent_max_turns=max_turns,
         turn_counter=turn_counter,
+        budget=budget,
     )
     buffer_store.describe = subagent_runner.elide
     parent_tools = base_tools + [buffer_reader] + subagent_tools(subagent_runner)
@@ -304,6 +307,7 @@ def run_scan(
             buffer_store=buffer_store,
             target_binding=target_binding,
             turn_counter=turn_counter,
+            budget=budget,
         )
         if token_budget is not None:
             try:
@@ -388,6 +392,25 @@ def run_scan(
                 "used": used,
                 "exhausted": used >= limit,
             }
+
+    budget_snapshot = budget.snapshot()
+    budget_hit = bool(
+        budget_snapshot["exhausted"]
+        or getattr(agent, "budget_exhausted", False)
+    )
+    budget_snapshot["exhausted"] = budget_hit
+    budget_snapshot["outcome"] = (
+        "budget_exhausted" if budget_hit else "completed"
+    )
+    envelope["budget"] = budget_snapshot
+    if budget_hit:
+        envelope["outcome"] = "budget_exhausted"
+        envelope["budget_exhausted"] = True
+        if not result.finished:
+            if not result.final:
+                envelope["summary"] = "scan ended with the budget exhausted"
+            ok = True
+            error = None
 
     if store is not None:
         store.save(envelope)

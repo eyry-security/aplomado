@@ -116,6 +116,7 @@ class SubAgentRunner:
         target_binding: TargetBinding | None = None,
         parent_max_turns: int = 200,
         turn_counter=None,
+        budget=None,
     ) -> None:
         self.model = model
         self.sandbox = sandbox
@@ -128,6 +129,7 @@ class SubAgentRunner:
         self.target_binding = target_binding
         self.parent_max_turns = parent_max_turns
         self.turn_counter = turn_counter
+        self.budget = budget
         self._lock = threading.Lock()
         self._counter = 0
         self._semaphore = threading.BoundedSemaphore(MAX_ACTIVE_SUBAGENTS)
@@ -217,6 +219,8 @@ class SubAgentRunner:
                     buffer_store=self.buffer_store,
                     target_binding=self.target_binding,
                     turn_counter=self.turn_counter,
+                    budget=self.budget,
+                    budget_enforce=False,
                 )
                 if self.thinking is not None:
                     agent.set_bound_wrapper(
