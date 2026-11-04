@@ -160,6 +160,13 @@ class SubAgentRunner:
             body = text[len("[pinnace] "):]
         else:
             body = text
+        if body.startswith("thinking:"):
+            # Keep the parent trace's thinking marker intact so the child's
+            # reasoning lands in the same host stream. The structured trace
+            # event carries the sub-agent tag instead of the log line.
+            self.log(f"[pinnace] {body}")
+            self._emit(subagent_id, "log", text=body)
+            return
         tagged = f"[pinnace] [subagent {subagent_id}] {body}"
         self.log(tagged)
         self._emit(subagent_id, "log", text=body)
@@ -216,6 +223,9 @@ class SubAgentRunner:
                     system_prompt=self.system_prompt,
                     max_turns=budget,
                     log=lambda msg: self._relay_log(subagent_id, msg),
+                    trace=self.trace,
+                    subagent=True,
+                    subagent_id=subagent_id,
                     buffer_store=self.buffer_store,
                     target_binding=self.target_binding,
                     turn_counter=self.turn_counter,

@@ -210,9 +210,9 @@ def run_scan(
         ``skill`` is an alias for callers that use Pro's kwarg name.
     thinking: opt-in reasoning narration: ``"compact"`` or ``"verbose"``.
         Reasoning is sent only to ``log`` and is bounded in both modes.
-    trace: optional callable receiving structured sub-agent trace events.
-        Child turns and tool calls also arrive through ``log`` tagged with the
-        sub-agent id.
+    trace: optional callable receiving structured trace events (per-turn
+        ``thinking`` events and sub-agent lifecycle events). Child turns and
+        tool calls also arrive through ``log`` tagged with the sub-agent id.
     token_budget: optional per-scan token ceiling. When the agent reaches it,
         it stops launching tests and asks the model for a finish() payload so
         partial findings are kept. None disables the ceiling.
@@ -304,6 +304,7 @@ def run_scan(
             session_id=session_id,
             session_store=session_store,
             log=effective_log,
+            trace=trace,
             buffer_store=buffer_store,
             target_binding=target_binding,
             turn_counter=turn_counter,
