@@ -33,6 +33,7 @@ from pinnace.compaction import (
 from pinnace.target_guard import guard_tool_call
 from pinnace.tools import parse_finish
 
+from .budget import budget_line
 from .command_policy import shell_tool
 from .history import is_tool_pairing_error, repair_tool_pairs
 from .partial import (
@@ -158,6 +159,8 @@ class AplomadoAgent(PinnaceAgent):
         turn_counter=None,
         tool_registry=None,
         gated_tools=None,
+        budget=None,
+        budget_enforce=True,
         **kwargs,
     ) -> None:
         self._bound_wrapper = None
@@ -165,6 +168,9 @@ class AplomadoAgent(PinnaceAgent):
         self.buffer_store = buffer_store
         self.token_budget = token_budget
         self.turn_counter = turn_counter
+        self.budget = budget
+        self.budget_enforce = bool(budget_enforce)
+        self.budget_exhausted = False
         self.coverage_target = None
         self.partial = False
         self.coverage = None
@@ -211,10 +217,100 @@ class AplomadoAgent(PinnaceAgent):
         if self._cache_system:
             self._add_tools_cache_breakpoint()
 
+    def _record_usage(self, response, call_kind, records):
+        record = super()._record_usage(response, call_kind, records)
+        if self.budget is not None:
+            self.budget.record_response(response)
+        return record
+
     def set_bound_wrapper(self, factory) -> None:
         """Wrap future tool rebinds (used for thinking narration)."""
         self._bound_wrapper = factory
         self._rebind_tools()
+
+    @staticmethod
+    def _strip_budget_lines(messages):
+        return [
+            message for message in messages
+            if not (
+                isinstance(message, SystemMessage)
+                and str(message.content).startswith("[BUDGET]")
+            )
+        ]
+
+    def _insert_budget_line(self, messages, content):
+        messages = self._strip_budget_lines(messages)
+        index = len(messages)
+        for position in range(len(messages) - 1, -1, -1):
+            message = messages[position]
+            if isinstance(message, AIMessage) and getattr(
+                message, "tool_calls", None
+            ):
+                index = position
+                break
+        messages.insert(index, SystemMessage(content=content))
+        return messages
+
+    def _budget_note(self, turns: int) -> str | None:
+        if self.budget is None or not self.budget_enforce or turns <= 1:
+            return None
+        line = budget_line(self.budget, completed_turns=turns - 1)
+        self._say(
+            "[pinnace] IMR budget spent "
+            f"${self.budget.spent_usd:.2f}/${self.budget.limit_usd:.2f}"
+        )
+        return line
+
+    def _budget_final_wrapup(self, messages, usage_records, turns):
+        """Run exactly one finish-only turn when the dollar budget is gone."""
+        line = budget_line(self.budget, completed_turns=max(0, turns - 1),
+                           final=True)
+        messages = self._strip_budget_lines(messages)
+        messages.append(SystemMessage(content=line))
+        messages.append(HumanMessage(content=(
+            "BUDGET EXHAUSTED. Do not run any more tests or open new lines "
+            "of investigation. Call finish() exactly once now with every "
+            "confirmed finding you have. Only finish() is allowed."
+        )))
+        self._say("[pinnace] IMR budget exhausted — final wrap-up turn")
+        try:
+            resp, messages = _invoke_with_pairing_repair(
+                self.bound, messages, log=self._say, kind="budget wrap-up request"
+            )
+        except Exception as exc:  # noqa: BLE001 - keep the scan result
+            self._say(f"[pinnace] budget wrap-up model call failed: {exc}")
+            return None, None, messages
+
+        self._record_usage(resp, "budget_wrapup_turn", usage_records)
+        messages.append(resp)
+        calls = resp.tool_calls or []
+        if not calls:
+            text = resp.content if isinstance(resp.content, str) else str(resp.content)
+            return None, text, messages
+
+        structured = None
+        for call in calls:
+            name = call.get("name", "")
+            call_id = call.get("id", "")
+            args = call.get("args", {}) or {}
+            if name != "finish":
+                out = "error: budget exhausted; only finish() is allowed"
+            else:
+                tool = self._tools_by_name.get(name)
+                try:
+                    out = str(tool.invoke(args)) if tool else (
+                        f"error: unknown tool {name!r}"
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    out = f"error: {exc}"
+            messages.append(
+                ToolMessage(content=out, tool_call_id=call_id, name=name)
+            )
+            payload = parse_finish(out)
+            if payload is not None and structured is None:
+                structured = payload
+                self._say("[pinnace] finish() called — done")
+        return structured, None, messages
 
     def add_tools(self, names) -> list[str]:
         """Bind additional pre-instantiated tools by name.
@@ -321,6 +417,16 @@ class AplomadoAgent(PinnaceAgent):
             if self.pending_injections:
                 messages.extend(self.pending_injections)
                 self.pending_injections = []
+            if (self.budget is not None and self.budget_enforce
+                    and self.budget.exhausted):
+                self.budget_exhausted = True
+                self._say(
+                    "[pinnace] IMR budget exhausted — final wrap-up turn"
+                )
+                break
+            note = self._budget_note(turns)
+            if note:
+                messages = self._insert_budget_line(messages, note)
             messages = repair_tool_pairs(messages)
             if self.token_budget and _usage_tokens(usage_records) >= self.token_budget:
                 budget_hit = True
@@ -388,6 +494,17 @@ class AplomadoAgent(PinnaceAgent):
                 break
             self._record_usage(resp, "agent_turn", usage_records)
             messages.append(resp)
+            budget_exhausted = bool(
+                self.budget is not None and self.budget_enforce
+                and self.budget.exhausted
+            )
+            if budget_exhausted:
+                self.budget_exhausted = True
+                self._say(
+                    "[pinnace] IMR budget exhausted — wrapping up "
+                    f"(${self.budget.spent_usd:.2f}/"
+                    f"${self.budget.limit_usd:.2f})"
+                )
             if self.token_budget and _usage_tokens(usage_records) >= self.token_budget:
                 budget_hit = True
                 self._say(
@@ -409,6 +526,13 @@ class AplomadoAgent(PinnaceAgent):
                     else str(resp.content)
                 )
                 self._say("[pinnace] no tool calls — done")
+                break
+
+            if budget_exhausted and not any(
+                    call.get("name") == "finish" for call in calls):
+                self._say(
+                    "[pinnace] IMR budget exhausted — stopping active tests"
+                )
                 break
 
             if budget_hit and not any(
@@ -465,10 +589,19 @@ class AplomadoAgent(PinnaceAgent):
             self._say(f"[pinnace] hit max_turns={self.max_turns}")
             self.turn_limit_reached = True
 
-        # A scan that exhausts its active-testing budget still deserves a
-        # chance to emit the findings it already confirmed. Ask for a
-        # finish()-only wrap-up turn instead of silently returning nothing.
-        if structured is None and final is None:
+        budget_exhausted = (
+            self.budget_exhausted
+            or bool(
+                self.budget is not None and self.budget_enforce
+                and self.budget.exhausted
+            )
+        )
+        if budget_exhausted and structured is None:
+            self.budget_exhausted = True
+            structured, final, messages = self._budget_final_wrapup(
+                messages, usage_records, turns
+            )
+        elif structured is None and final is None:
             reason = "TOKEN BUDGET REACHED" if budget_hit else "TURN LIMIT REACHED"
             disclosure = (
                 "The coverage statement must disclose that the token "
