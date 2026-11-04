@@ -24,7 +24,7 @@ from langchain_core.messages import (
 )
 
 from pinnace import AgentResult, PinnaceAgent
-from pinnace.agent import THINKING_LOG_MAX_CHARS, extract_thinking
+from pinnace.agent import extract_thinking
 from pinnace.compaction import (
     SUMMARIZE_PROMPT,
     estimate_tokens,
@@ -44,11 +44,49 @@ from .partial import (
 from .todos import load_todos
 
 PAIRING_RETRY_DELAYS = (0.25, 0.5, 1.0)
+THINKING_EVENT_MAX_CHARS = 1500
+THINKING_EVENT_ELLIPSIS = "…"
 COMPACTION_SUMMARY_PROMPT = SUMMARIZE_PROMPT + (
     "\n\nFacts recorded in the session memory graph (scratch/memory.json) are "
     "authoritative and are NOT restated in this summary. The summary covers "
     "only intent, sequence, and open questions."
 )
+
+
+def _assistant_text(response) -> str:
+    """Return the assistant-authored text in *response* (not tool calls)."""
+    content = getattr(response, "content", None)
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return "" if content is None else str(content)
+
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+            continue
+        if isinstance(block, dict):
+            block_type = block.get("type")
+            text = block.get("text")
+            if text is None and block_type in {"thinking", "reasoning"}:
+                text = block.get("thinking")
+        else:
+            block_type = getattr(block, "type", None)
+            text = getattr(block, "text", None)
+            if text is None and block_type in {"thinking", "reasoning"}:
+                text = getattr(block, "thinking", None)
+        if block_type in {None, "text", "thinking", "reasoning"} and isinstance(
+            text, str
+        ):
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def _clip_thinking(text: str) -> str:
+    if len(text) > THINKING_EVENT_MAX_CHARS:
+        return text[:THINKING_EVENT_MAX_CHARS] + THINKING_EVENT_ELLIPSIS
+    return text
 
 
 def _invoke_with_pairing_repair(model, messages, *, log=None, kind="request"):
@@ -161,10 +199,18 @@ class AplomadoAgent(PinnaceAgent):
         gated_tools=None,
         budget=None,
         budget_enforce=True,
+        trace=None,
+        host=None,
+        subagent=False,
+        subagent_id=None,
         **kwargs,
     ) -> None:
         self._bound_wrapper = None
         super().__init__(*args, **kwargs)
+        self.trace = trace
+        self.host = host
+        self.subagent = bool(subagent)
+        self.subagent_id = subagent_id
         self.buffer_store = buffer_store
         self.token_budget = token_budget
         self.turn_counter = turn_counter
@@ -260,6 +306,41 @@ class AplomadoAgent(PinnaceAgent):
             f"${self.budget.spent_usd:.2f}/${self.budget.limit_usd:.2f}"
         )
         return line
+
+    def _thinking_host(self) -> str:
+        if self.host:
+            return str(self.host)
+        binding = self.target_binding
+        return str(getattr(binding, "assigned_host", "") or "")
+
+    def _emit_thinking(self, response, turn: int) -> None:
+        """Publish the assistant's text for a turn before its tool calls."""
+        text = _assistant_text(response).strip()
+        if not text:
+            # Preserve legacy extended-reasoning narration for providers that
+            # return it only in response metadata.
+            text = extract_thinking(response).strip()
+        if not text:
+            return
+        text = _clip_thinking(text)
+        # The log marker is what the scan event bridge (eyry-pro) turns into a
+        # persisted ``thinking`` event. The structured trace event carries the
+        # host/turn/sub-agent metadata for consumers that read it directly.
+        self._say(f"[pinnace] thinking: {text}")
+        if self.trace is None:
+            return
+        event = {
+            "event": "thinking",
+            "host": self._thinking_host(),
+            "turn": int(turn),
+            "text": text,
+        }
+        if self.subagent:
+            event["subagent"] = True
+        try:
+            self.trace(event)
+        except Exception:  # noqa: BLE001 - tracing must never break a run
+            pass
 
     def _budget_final_wrapup(self, messages, usage_records, turns):
         """Run exactly one finish-only turn when the dollar budget is gone."""
@@ -512,11 +593,7 @@ class AplomadoAgent(PinnaceAgent):
                     f"({_usage_tokens(usage_records)}/{self.token_budget})"
                 )
 
-            thinking = extract_thinking(resp)
-            if thinking:
-                if len(thinking) > THINKING_LOG_MAX_CHARS:
-                    thinking = thinking[:THINKING_LOG_MAX_CHARS] + "…"
-                self._say(f"[pinnace] thinking: {thinking}")
+            self._emit_thinking(resp, turns)
 
             calls = resp.tool_calls or []
             if not calls:
