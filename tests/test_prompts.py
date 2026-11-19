@@ -89,6 +89,33 @@ def test_subagent_prompt_keeps_the_parent_host_in_scope():
     assert "never test them or file findings about them" in prompt
 
 
+def test_build_prompt_forbids_placeholder_and_foreign_targets():
+    target = "https://bound.example.net"
+    prompt = build_prompt(target)
+    assert "Connect only to it" in prompt
+    assert "Never reference any other host" in prompt
+    assert "NEVER use placeholder or example domains" in prompt
+    assert "evil.example" in prompt
+    assert "a subdomain of the bound host" in prompt
+    assert "relative reference" in prompt
+
+
+def test_prompts_pin_turn_economy_and_code_habits():
+    from aplomado.prompts import BUGHUNTER_SYSTEM_PROMPT, PLANNING_PROTOCOL
+
+    for text in (SYSTEM_PROMPT, BUGHUNTER_SYSTEM_PROMPT):
+        assert "TURN ECONOMY" in text
+        assert "plan the host review before executing" in text.lower()
+        assert "fetch each artifact once" in text.lower()
+        assert "batch independent checks" in text.lower()
+        assert "write the script once to a file" in text.lower()
+        assert "offline analysis of already-fetched data" in text
+
+    assert "fetch each artifact once" in PLANNING_PROTOCOL.lower()
+    assert "batch independent checks" in PLANNING_PROTOCOL
+    assert "re-emitting" in PLANNING_PROTOCOL
+
+
 def test_build_prompt_without_context_has_no_blank_block():
     prompt = build_prompt("https://example.com")
     # Should have exactly two parts: TARGET line and the investigate instruction
