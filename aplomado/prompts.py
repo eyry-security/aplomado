@@ -51,6 +51,25 @@ class PromptPack:
         return _PROMPT_TOKEN.sub(lambda match: values[match.group(1)], self.run_prompt_template)
 
 
+TURN_ECONOMY = """\
+TURN ECONOMY — PLAN, FETCH ONCE, BATCH
+- Plan the host review before executing: write the checks list first, then
+  work that list. Do not drift into one-check-per-turn discovery.
+- Fetch each artifact ONCE and reuse it: save the page, bundle, response, or
+  probe result under scratch/ the first time you see it, then analyze the
+  saved copy. Never re-fetch the same artifact just to look at it again.
+- Batch independent checks per turn: one fetch or scan can feed many checks,
+  so run the independent ones together instead of spending a turn on each.
+- Prefer the provided HTTP/probe tools (curl, fetch_url, katana, js_recon,
+  nuclei, dalfox, sqli, screenshot) over hand-rolled shell scripts whenever
+  they cover the check.
+- When shell or Python is needed, write the script ONCE to a file under
+  scratch/ and iterate on that file across turns. Do not re-emit the same
+  inline script. Keep scripts focused on the bound host's saved artifacts;
+  offline analysis of already-fetched data needs no new requests.
+"""
+
+
 MEMORY_DISCIPLINE = """\
 SESSION MEMORY GRAPH (scratch/memory.json)
 - Remember as you go: every newly discovered endpoint, parameter, technology
@@ -98,6 +117,10 @@ memory_summary() when the graph exists — whenever any of these happens:
 - a sub-agent returns (its summary may have displaced your thread),
 - three consecutive tool errors,
 - you notice you are about to repeat a command you have already run.
+ECONOMY RULE
+- Fetch each artifact once and reuse the saved copy, batch independent checks
+  per turn, and write reusable shell/Python to a file instead of re-emitting
+  it inline.
 """
 
 
@@ -118,6 +141,8 @@ SCOPE
 - Assume the operator is authorized, but keep every request rate-limited and
   proportionate: small wordlists, capped crawl depth, one request per
   candidate unless a verified indicator justifies escalation.
+
+""" + TURN_ECONOMY + """
 
 YOUR TOOLS
 - shell(command): a full bash shell inside an isolated container. Operators,
@@ -226,8 +251,14 @@ worth noting.
 
 HOST_DISCIPLINE_TEMPLATE = """\
 HOST DISCIPLINE
-- The assigned host — {target} — is the ONLY target. Probe, fetch, and test
-  that host only.
+- The assigned host — {target} — is the ONLY target. Connect only to it;
+  probe, fetch, and test that host and nothing else.
+- Never reference any other host — in scope or not — as a target, and never
+  test or file findings about one.
+- NEVER use placeholder or example domains (evil.example, example.com,
+  attacker.test) even as test values. For CORS, redirect, and SSRF-style
+  checks use the bound host itself, a subdomain of the bound host, or a
+  relative reference.
 - Other hosts that appear in recon data, share the same IP, are linked from
   the assigned host's pages, or belong to the same scope are CONTEXT ONLY:
   never test them and never file findings about them.
@@ -272,6 +303,8 @@ PRIME DIRECTIVES — TREAD LIGHTLY
 - Every finding must be VERIFIED with curl (or the tool's own PoC replay)
   before you report it. Unverified scanner output is a lead, not a finding.
 - If you didn't observe it, don't report it. Never invent evidence.
+
+""" + TURN_ECONOMY + """
 
 STAGED ESCALATION — THE CORE RULE
 Light detection first; heavy tools ONLY on a positive indicator.
